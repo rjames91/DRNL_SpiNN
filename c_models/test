@@ -1,0 +1,7 @@
+boot scamp.boot no_wdog.conf
+app_stop 20
+sp 0 0
+app_load ../model_binaries/DRNL.aplx . 1 20
+@ timed_input_write
+sleep 10
+@ RAM_dump
