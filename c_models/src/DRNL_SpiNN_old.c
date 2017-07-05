@@ -11,6 +11,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdfix.h>
+//#include "startupValues.h"
 #include "DRNL_SpiNN.h"
 #include "spin1_api.h"
 #include "math.h"
@@ -18,7 +19,7 @@
 #include "random.h"
 #include "stdfix-exp.h"
 #include "log.h"
-#define TIMER_TICK_PERIOD 2600//2300//REALTIME (23ms to process 100 44100Hz samples TODO: make this dependent on numfibres
+#define TIMER_TICK_PERIOD 23000//REALTIME (23ms to process 100 44100Hz samples
 
 #define TOTAL_TICKS 240//173//197       
 #define PROFILE
@@ -49,12 +50,12 @@ accum c;
 
 REAL complex lin_z1,lin_z2,lin_z3,lin_tf,nlin_z1,nlin_z2,nlin_z3,nlin_tf;
 
-REAL lin_x1;
+REAL lin_x1[2],lin_x2[2];
 REAL lin_y1[2],lin_y2[2];
 
-REAL nlin_x1a;
+REAL nlin_x1a[2],nlin_x2a[2];
 REAL nlin_y1a[2],nlin_y2a[2];
-REAL nlin_x1b;
+REAL nlin_x1b[2],nlin_x2b[2];
 REAL nlin_y1b[2],nlin_y2b[2];
 
 //uint seed_selection[SEED_SEL_SIZE];//TODO:this needs to be moved to SDRAM
@@ -168,7 +169,7 @@ void app_init(void)
 	
 	//============MODEL INITIALISATION================//
 
-	//set center frequency TODO:change cf to a model instance input parameter
+	//set center frequency TODO:change to a model input parameter
 	cf=1000.0;
 
 	//non-linear pathway
@@ -216,26 +217,35 @@ void app_init(void)
 	lin_b1 = lin_alpha * lin_b0;
 
 	//starting values
-	lin_x1=0.0;
+	lin_x1[0]=0.0;
+	lin_x1[1]=0.0;
 	lin_y1[0]=0.0;
 	lin_y1[1]=0.0;
 	
+	lin_x2[0]=0.0;
+	lin_x2[1]=0.0;
 	lin_y2[0]=0.0;
 	lin_y2[1]=0.0;	
 
-	nlin_x1a=0.0;
+	nlin_x1a[0]=0.0;
+	nlin_x1a[1]=0.0;
 	nlin_y1a[0]=0.0;
 	nlin_y1a[1]=0.0;
 
 	compressedNonlin=0.0;
 	
+	nlin_x2a[0]=0.0;
+	nlin_x2a[1]=0.0;
 	nlin_y2a[0]=0.0;
 	nlin_y2a[1]=0.0;
 
-	nlin_x1b=0.0;
+	nlin_x1b[0]=0.0;
+	nlin_x1b[1]=0.0;
 	nlin_y1b[0]=0.0;
 	nlin_y1b[1]=0.0;
 	
+	nlin_x2b[0]=0.0;
+	nlin_x2b[1]=0.0;
 	nlin_y2b[0]=0.0;
 	nlin_y2b[1]=0.0;
 
@@ -337,9 +347,16 @@ void data_read(uint ticks, uint null)
 uint process_chan(REAL *out_buffer,REAL *in_buffer) 
 {  
 	uint segment_offset=SEGSIZE*(seg_index-1);
-	uint i;		
-	REAL linout1,linout2,nonlinout1a,nonlinout2a,nonlinout1b,nonlinout2b,abs_x;
-
+	uint i,j,k;
+		
+	uint si=0;
+	REAL linout1,linout2,nonlinout1a,nonlinout2a,nonlinout1b,nonlinout2b,abs_x,sign;
+	accum accum_comp;
+		
+#ifdef PRINT
+	io_printf (IO_BUF, "[core %d] segment %d (offset=%d) starting processing\n", coreID,seg_index,segment_offset);
+#endif
+	
 	for(i=0;i<SEGSIZE;i++)
 	{
 	/*	#ifdef PROFILE
@@ -350,14 +367,20 @@ uint process_chan(REAL *out_buffer,REAL *in_buffer)
 		#endif*/
 
 		//Linear Path
-		linout1= lin_b0 * in_buffer[i] + lin_b1 * lin_x1 - 
-				lin_a1 * lin_y1[1] - lin_a2 * lin_y1[0];		
-
-		lin_x1=in_buffer[i];
+		lin_x1[1]= in_buffer[i];	
+		linout1= lin_b0 * lin_x1[1] + lin_b1 * lin_x1[0] - 
+				lin_a1 * lin_y1[1] - lin_a2 * lin_y1[0];
+		
+		lin_x1[0]= lin_x1[1];
 		lin_y1[0]=lin_y1[1];
 		lin_y1[1]=linout1;
 
-		linout2= lin_b0 * linout1 + lin_b1 * lin_y1[0] - 
+		//lin_x2[0]= lin_x2[1];
+		//lin_x2[1]= linout1;		
+		
+		//linout2= lin_b0 * lin_x2[1] + lin_b1 * lin_x2[0] - 
+		//		lin_a1 * lin_y2[1] - lin_a2 * lin_y2[0];
+		linout2= lin_b0 * lin_y1[1] + lin_b1 * lin_y1[0] - 
 				lin_a1 * lin_y2[1] - lin_a2 * lin_y2[0];
 		
 		lin_y2[0]= lin_y2[1];
@@ -365,14 +388,20 @@ uint process_chan(REAL *out_buffer,REAL *in_buffer)
 
 		//non-linear path
 		//stage 1
-		nonlinout1a= nlin_b0 * in_buffer[i] + nlin_b1 * nlin_x1a - 
+		nlin_x1a[1]= in_buffer[i];
+		nonlinout1a= nlin_b0 * nlin_x1a[1] + nlin_b1 * nlin_x1a[0] - 
 				nlin_a1 * nlin_y1a[1] - nlin_a2 * nlin_y1a[0];
 
-		nlin_x1a=in_buffer[i];
+		nlin_x1a[0]= nlin_x1a[1];
 		nlin_y1a[0]=nlin_y1a[1];
 		nlin_y1a[1]=nonlinout1a;
 
-		nonlinout2a= nlin_b0 * nonlinout1a + nlin_b1 * nlin_y1a[0] - 
+		//nlin_x2a[0]= nlin_x2a[1];
+		//nlin_x2a[1]= nonlinout1a;
+
+		//nonlinout2a= nlin_b0 * nlin_x2a[1] + nlin_b1 * nlin_x2a[0] - 
+		//		nlin_a1 * nlin_y2a[1] - nlin_a2 * nlin_y2a[0];
+		nonlinout2a= nlin_b0 * nlin_y1a[1] + nlin_b1 * nlin_y1a[0] - 
 				nlin_a1 * nlin_y2a[1] - nlin_a2 * nlin_y2a[0];
 		nlin_y2a[0]= nlin_y2a[1];
 		nlin_y2a[1]= nonlinout2a;
@@ -397,8 +426,8 @@ uint process_chan(REAL *out_buffer,REAL *in_buffer)
 		}
 		else if(abs_x>0.0)//compress
 		{	
-			
-			compressedNonlin=SIGN(nonlinout2a) * ctBM * (REAL)expk(c * logk((accum)a*abs_x*recip_ctBM));
+			sign= SIGN(nonlinout2a);
+			compressedNonlin= sign * ctBM * (REAL)expk(c * logk((accum)a*abs_x*recip_ctBM));
 			//compressedNonlin= sign * ctBM * exp(c * log(a * abs_x * recip_ctBM));
 		}	
 		else
@@ -407,18 +436,26 @@ uint process_chan(REAL *out_buffer,REAL *in_buffer)
 		}			
 
 		//stage 3 
-		nonlinout1b= nlin_b0 * compressedNonlin + nlin_b1 * nlin_x1b -
+		nlin_x1b[1]= compressedNonlin;//nonlinout2a;//
+		nonlinout1b= nlin_b0 * nlin_x1b[1] + nlin_b1 * nlin_x1b[0] -
 				 nlin_a1 * nlin_y1b[1] - nlin_a2 * nlin_y1b[0];
 
-		nlin_x1b=compressedNonlin;
+		nlin_x1b[0]= nlin_x1b[1];
 		nlin_y1b[0]=nlin_y1b[1];
 		nlin_y1b[1]=nonlinout1b;
 
-		nonlinout2b= nlin_b0 * nonlinout1b + nlin_b1 * nlin_y1b[0] - 
+		//nlin_x2b[0]= nlin_x2b[1];
+		//nlin_x2b[1]= nonlinout1b;
+
+		//nonlinout2b= nlin_b0 * nlin_x2b[1] + nlin_b1 * nlin_x2b[0] - 
+		//		nlin_a1 * nlin_y2b[1] - nlin_a2 * nlin_y2b[0];
+
+		nonlinout2b= nlin_b0 * nlin_y1b[1] + nlin_b1 * nlin_y1b[0] - 
 				nlin_a1 * nlin_y2b[1] - nlin_a2 * nlin_y2b[0];
 
 		nlin_y2b[0]= nlin_y2b[1];
 		nlin_y2b[1]= nonlinout2b;
+
 	
 		//save to buffer
 		out_buffer[i]=linout2*lin_gain + nonlinout2b;

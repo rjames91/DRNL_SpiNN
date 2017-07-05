@@ -68,6 +68,6 @@ def test_script_gen(segments,chips=1,dur=7,boot_string="boot",cores=16,segment_l
 	f.write("@ RAM_dump\n")
 
 
-test_script_gen(segments=200,chips=1,dur=10,boot_string="boot scamp.boot no_wdog.conf",cores=1,segment_length=100,num_fibres=1,app_no=20)
+test_script_gen(segments=200,chips=1,dur=5,boot_string="boot scamp.boot no_wdog.conf",cores=16,segment_length=100,num_fibres=1,app_no=20)
 
 
