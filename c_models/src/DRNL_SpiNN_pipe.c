@@ -90,7 +90,8 @@ enum params {
     OME_KEY,
     KEY,
     NUM_IHCAN,
-    CF
+    CF,
+    FS
 };
 
 // The size of the remaining data to be sent
@@ -107,12 +108,12 @@ uint ome_key;
 uint key;
 uint num_ihcans;
 uint drnl_cf;
+uint sampling_frequency;
 
 //application initialisation
 void app_init(void)
 {
-	Fs=SAMPLING_FREQUENCY;
-	dt=(1.0/Fs);
+
 	seg_index=0;
 	read_switch=0;
 	write_switch=0;
@@ -147,11 +148,17 @@ void app_init(void)
 
     //log_info("cf=%d\n",drnl_cf);
 
-    //log_info("data_size=%d",data_size);
+    log_info("data_size=%d",data_size);
 
-    log_info("num_ihcans=%d\n",num_ihcans);
+    //log_info("num_ihcans=%d\n",num_ihcans);
 
     log_info("DRNL-->IHCAN key=%d\n",key);
+
+    //Get sampling frequency
+    sampling_frequency = params[FS];
+
+    Fs= (REAL)sampling_frequency;
+	dt=(1.0/Fs);
 
     // Allocate buffers somewhere in SDRAM
 	//output results buffer
@@ -220,7 +227,7 @@ void app_init(void)
 	
 	//============MODEL INITIALISATION================//
 
-	//set center frequency TODO:change cf to a model instance input parameter
+	//set center frequency
 	//cf=4000.0;
 	cf=(REAL)drnl_cf;
 
@@ -359,9 +366,6 @@ void data_read(uint ticks, uint payload)
 
     //log_info("mcpacket recieved %d\n",seg_index);
 
-    // stop if desired number of ticks reached
-    //TODO: probably change this to a simulation stop input
-    //if (ticks > TOTAL_TICKS)
     if (payload==1)
     {
         //OME has finished writing to SDRAM schedule end callback
