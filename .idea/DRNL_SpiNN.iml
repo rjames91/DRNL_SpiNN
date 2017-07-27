@@ -4,7 +4,6 @@
     <content url="file://$MODULE_DIR$" />
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />
-    <orderEntry type="module" module-name="DataSpecification" />
     <orderEntry type="module" module-name="sPyNNaker" />
     <orderEntry type="module" module-name="SpiNNMachine" />
     <orderEntry type="module" module-name="SpiNNUtils" />
@@ -12,11 +11,13 @@
     <orderEntry type="module" module-name="PACMAN" />
     <orderEntry type="module" module-name="SpiNNFrontEndCommon" />
     <orderEntry type="module" module-name="SpiNNakerGraphFrontEnd" />
-    <orderEntry type="module" module-name="sPyNNakerExternalDevicesPlugin" />
     <orderEntry type="module" module-name="sPyNNakerExtraModelsPlugin" />
     <orderEntry type="module" module-name="SpiNNStorageHandlers" />
     <orderEntry type="module" module-name="IHC_AN_SpiNN" />
     <orderEntry type="module" module-name="OME_SpiNN" />
     <orderEntry type="module" module-name="spinnaker_tools" />
+    <orderEntry type="module" module-name="DataSpecification" />
+    <orderEntry type="module" module-name="sPyNNaker7ExternalDevicesPlugin" />
+    <orderEntry type="module" module-name="sPyNNaker7" />
   </component>
 </module>

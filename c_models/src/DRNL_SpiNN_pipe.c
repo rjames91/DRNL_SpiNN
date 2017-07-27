@@ -34,6 +34,8 @@ uint coreID;
 uint chipID;
 uint test_DMA;
 uint seg_index;
+uint cbuff_index;
+uint cbuff_numseg;
 uint read_switch;
 uint write_switch;
 uint processing;
@@ -115,6 +117,8 @@ void app_init(void)
 {
 
 	seg_index=0;
+	cbuff_index=0;
+	cbuff_numseg=3;
 	read_switch=0;
 	write_switch=0;
 
@@ -162,6 +166,8 @@ void app_init(void)
 
     // Allocate buffers somewhere in SDRAM
 	//output results buffer
+	//hack for smaller SDRAM intermediate buffers
+	//data_size=cbuff_numseg*SEGSIZE;
 
 	sdramout_buffer = (REAL *) sark_xalloc (sv->sdram_heap,
 					 data_size * sizeof(REAL),
@@ -354,7 +360,10 @@ void data_write(uint null_a, uint null_b)
 		spin1_dma_transfer(DMA_WRITE,&sdramout_buffer[out_index],dtcm_buffer_out,DMA_WRITE,
 		  						SEGSIZE*sizeof(REAL));
 #ifdef PRINT
-		io_printf (IO_BUF, "[core %d] segment %d written to @ 0x%08x - 0x%08x\n", coreID,seg_index,
+		log_info("[core %d] segment %d written @ 0x%08x\n", coreID,seg_index,
+							  (uint) &sdramout_buffer[out_index]);
+
+		log_info("[core %d] segment %d written to @ 0x%08x - 0x%08x\n", coreID,seg_index,
 							  (uint) &sdramout_buffer[out_index],(uint) &sdramout_buffer[out_index+(NUMFIBRES-1)*SEGSIZE+SEGSIZE-1]);
 #endif
 	}
@@ -440,11 +449,13 @@ void data_read(uint ticks, uint payload)
 
             #ifdef PRINT
                     io_printf (IO_BUF, "[core %d] sdram DMA read @ 0x%08x (segment %d)\n", coreID,
-                                  (uint) &sdramin_buffer[(seg_index)*SEGSIZE],seg_index+1);
+                                  (uint) &sdramin_buffer[(cbuff_index)*SEGSIZE],seg_index+1);
             #endif
 
             spin1_dma_transfer(DMA_READ,&sdramin_buffer[seg_index*SEGSIZE], dtcm_buffer_in, DMA_READ,
                    SEGSIZE*sizeof(REAL));
+            //spin1_dma_transfer(DMA_READ,&sdramin_buffer[cbuff_index*SEGSIZE], dtcm_buffer_in, DMA_READ,
+            //       SEGSIZE*sizeof(REAL));
         }
     }
 }
@@ -453,6 +464,7 @@ void data_read(uint ticks, uint payload)
 uint process_chan(REAL *out_buffer,REAL *in_buffer) 
 {  
 	uint segment_offset=SEGSIZE*(seg_index-1);
+	//uint segment_offset=SEGSIZE*(cbuff_index);
 	uint i;		
 	REAL linout1,linout2,nonlinout1a,nonlinout2a,nonlinout1b,nonlinout2b,abs_x;
 
@@ -557,6 +569,16 @@ void transfer_handler(uint tid, uint ttag)
 #endif
 		//increment segment index
 		seg_index++;
+
+	    //check circular buffer
+		if(cbuff_index<cbuff_numseg-1)
+		{    //increment circular buffer index
+		    cbuff_index++;
+		}
+		else
+		{
+		    cbuff_index=0;
+		}
 		
 		#ifdef PROFILE
 		  start_count_process = tc[T2_COUNT];
