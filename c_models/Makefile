@@ -4,7 +4,7 @@ endif
 
 APP := DRNL
 BUILD_DIR = build/
-SOURCES = src/DRNL_SpiNN_pipe.c#src/DRNL_SpiNN.c
+SOURCES = src/DRNL_SpiNN_pipe_MC.c#src/DRNL_SpiNN.c
 MAKEFILE_PATH := $(abspath $(lastword $(MAKEFILE_LIST)))
 CURRENT_DIR := $(dir $(MAKEFILE_PATH))
 EXTRA_SRC_DIR := $(abspath $(CURRENT_DIR)/src) 

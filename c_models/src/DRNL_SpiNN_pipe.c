@@ -150,13 +150,13 @@ void app_init(void)
 
     drnl_cf=params[CF];
 
-    //log_info("cf=%d\n",drnl_cf);
+    log_info("key=%d\n",key);
 
     log_info("data_size=%d",data_size);
 
     //log_info("num_ihcans=%d\n",num_ihcans);
 
-    log_info("DRNL-->IHCAN key=%d\n",key);
+    log_info("CF=%d\n",drnl_cf);
 
     //Get sampling frequency
     sampling_frequency = params[FS];
@@ -167,7 +167,7 @@ void app_init(void)
     // Allocate buffers somewhere in SDRAM
 	//output results buffer
 	//hack for smaller SDRAM intermediate buffers
-	//data_size=cbuff_numseg*SEGSIZE;
+	data_size=cbuff_numseg*SEGSIZE;
 
 	sdramout_buffer = (REAL *) sark_xalloc (sv->sdram_heap,
 					 data_size * sizeof(REAL),
@@ -319,12 +319,24 @@ void app_init(void)
 
 void app_end(uint null_a,uint null_b)
 {
-
     //send end MC packet to child IHCANs
-    //log_info("All data has been sent seg_index=%d",seg_index);
+    log_info("sending final packet to IHCANs\n");
     while (!spin1_send_mc_packet(key, 1, WITH_PAYLOAD)) {
         spin1_delay_us(1);
     }
+
+    //wait for acknowledgment from child IHCANs
+    while(sync_count<num_ihcans)
+    {
+       spin1_delay_us(1);
+    }
+
+    log_info("all final acks received, sending final ack to OME and closing\n");
+    //send final ack packet back to parent OME
+    while (!spin1_send_mc_packet(ome_key, 2, WITH_PAYLOAD)) {
+        spin1_delay_us(1);
+    }
+
 
     io_printf (IO_BUF, "spinn_exit %d\n",seg_index);
     spin1_exit (0);
@@ -407,7 +419,7 @@ void data_read(uint ticks, uint payload)
 
         if (sync_count<num_ihcans)//waiting for acknowledgement from child IHCANs
         {
-            //log_info("sending r2s packet\n");
+            log_info("sending r2s packet, ack count=%d, total ihcans=%d",sync_count,num_ihcans);
             //sending ready to send MC packet to connected IHCAN models
             while (!spin1_send_mc_packet(key, 3, WITH_PAYLOAD))
             {
@@ -417,11 +429,13 @@ void data_read(uint ticks, uint payload)
 
         else if (sync_count==num_ihcans)
         {
+            log_info("sending ack packet to OME\n");
             //now all acknowledgments have been received from the child IHCAN models, send acknowledgement back to parent OME
             while (!spin1_send_mc_packet(ome_key, 2, WITH_PAYLOAD))
             {
                 spin1_delay_us(1);
             }
+            sync_count=0;
         }
     }
     else //payload is 0 therefore next segment in input buffer memory is ready
@@ -452,10 +466,10 @@ void data_read(uint ticks, uint payload)
                                   (uint) &sdramin_buffer[(cbuff_index)*SEGSIZE],seg_index+1);
             #endif
 
-            spin1_dma_transfer(DMA_READ,&sdramin_buffer[seg_index*SEGSIZE], dtcm_buffer_in, DMA_READ,
-                   SEGSIZE*sizeof(REAL));
-            //spin1_dma_transfer(DMA_READ,&sdramin_buffer[cbuff_index*SEGSIZE], dtcm_buffer_in, DMA_READ,
+           // spin1_dma_transfer(DMA_READ,&sdramin_buffer[seg_index*SEGSIZE], dtcm_buffer_in, DMA_READ,
             //       SEGSIZE*sizeof(REAL));
+            spin1_dma_transfer(DMA_READ,&sdramin_buffer[cbuff_index*SEGSIZE], dtcm_buffer_in, DMA_READ,
+                   SEGSIZE*sizeof(REAL));
         }
     }
 }
@@ -463,8 +477,8 @@ void data_read(uint ticks, uint payload)
 
 uint process_chan(REAL *out_buffer,REAL *in_buffer) 
 {  
-	uint segment_offset=SEGSIZE*(seg_index-1);
-	//uint segment_offset=SEGSIZE*(cbuff_index);
+	//uint segment_offset=SEGSIZE*(seg_index-1);
+	uint segment_offset=SEGSIZE*(cbuff_index);
 	uint i;		
 	REAL linout1,linout2,nonlinout1a,nonlinout2a,nonlinout1b,nonlinout2b,abs_x;
 
@@ -605,9 +619,9 @@ void transfer_handler(uint tid, uint ttag)
 		#ifdef PROFILE
 			  end_count_process = tc[T2_COUNT];
 			  dtcm_profile_buffer[1+((seg_index-1)*3)]=start_count_process-end_count_process;
-		#ifdef PRINT 
+		#ifdef PRINT
 			io_printf (IO_BUF, "process complete in %d ticks (segment %d)\n",start_count_process-end_count_process,seg_index);
-		#endif	
+		#endif
 		#endif			
 		
 		spin1_trigger_user_event(NULL,NULL);
