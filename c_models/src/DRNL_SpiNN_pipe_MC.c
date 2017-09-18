@@ -44,10 +44,10 @@ uint MC_seg_idx;
 uint_float_union MC_union;
 uint ack_rx=0;
 
-REAL cf,nlin_b0,nlin_b1,nlin_b2,nlin_a1,nlin_a2,nlBWp,nlBWq,linBWp,linBWq,linCFp,linCFq,	nlin_bw,nlin_phi,nlin_theta,nlin_cos_theta,nlin_sin_theta,nlin_alpha,
-
-lin_b0,lin_b1,lin_b2,lin_a1,lin_a2,lin_bw,lin_phi,lin_theta,lin_cos_theta,lin_sin_theta,lin_alpha,
-lin_gain,
+REAL cf,lin_cf,nlin_b0,nlin_b1,nlin_b2,nlin_a1,nlin_a2,nlBWp,nlBWq,linBWp,linBWq,linCFp,linCFq,
+    nlin_bw,nlin_phi,nlin_theta,nlin_cos_theta,nlin_sin_theta,nlin_alpha,
+    lin_b0,lin_b1,lin_b2,lin_a1,lin_a2,lin_bw,lin_phi,lin_theta,lin_cos_theta,
+    lin_sin_theta,lin_alpha,lin_gain,
 
 a,ctBM,dispThresh,recip_ctBM,compressedNonlin,MOC,MOCnow1,MOCnow2,MOCnow3,MOCdec1,MOCdec2,MOCdec3,MOCfactor1,
 MOCfactor2,MOCfactor3,rateToAttentuationFactor,MOCspikeCount;
@@ -127,7 +127,7 @@ void app_init(void)
 
 	/* say hello */
 	
-	io_printf (IO_BUF, "[core %d] -----------------------\n", coreID);
+	//io_printf (IO_BUF, "[core %d] -----------------------\n", coreID);
 	io_printf (IO_BUF, "[core %d] starting simulation\n", coreID);
 
     //obtain data spec
@@ -159,14 +159,14 @@ void app_init(void)
     delay = params[DELAY];
 
   //  log_info("delay=%d\n",delay);
-    log_info("key=%d\n",key);
+   /* log_info("key=%d\n",key);
     log_info("ome key=%d\n",ome_key);
   //  log_info("mask=%d\n",mask);
     //log_info("data_size=%d",data_size);
 
     //log_info("num_ihcans=%d\n",num_ihcans);
 
-    log_info("CF=%d\n",drnl_cf);
+    log_info("CF=%d\n",drnl_cf);*/
 
     //Get sampling frequency
     sampling_frequency = params[FS];
@@ -203,7 +203,7 @@ void app_init(void)
 			|| dtcm_buffer_a == NULL || dtcm_buffer_b == NULL || dtcm_profile_buffer == NULL ||dtcm_buffer_x == NULL)*/
 	{
 		test_DMA = FALSE;
-		io_printf (IO_BUF, "[core %d] error - cannot allocate buffer\n", coreID);
+		//io_printf (IO_BUF, "[core %d] error - cannot allocate buffer\n", coreID);
 	}
 	else
 	{
@@ -268,7 +268,7 @@ void app_init(void)
 	nlin_b1 = nlin_alpha * nlin_b0;
 
 	//compression algorithm variables
-	a=5e4;
+	a=30e4;//5e4;
 	c=0.25k;
 	ctBM=3.981071705534974e-08;
 	recip_ctBM=1.0/ctBM;
@@ -280,7 +280,10 @@ void app_init(void)
 	linBWp=0.2;
 	lin_bw=linBWp * cf + linBWq;
 	lin_phi=2.0 * (REAL)PI * lin_bw * dt;
-	lin_theta= 2.0 * (REAL)PI * cf * dt;
+	linCFp=0.62;
+	linCFq=266.0;
+	lin_cf=linCFp*cf+linCFq;
+	lin_theta= 2.0 * (REAL)PI * lin_cf * dt;
 	lin_cos_theta= cos(lin_theta);
 	lin_sin_theta= sin(lin_theta);
 	lin_alpha= -exp(-lin_phi) * lin_cos_theta;
@@ -439,7 +442,10 @@ uint process_chan(REAL *out_buffer,REAL *in_buffer)
 		lin_y1[0]=lin_y1[1];
 		lin_y1[1]=linout1;
 
-		linout2= lin_b0 * linout1 + lin_b1 * lin_y1[0] - 
+		/*linout2= lin_b0 * linout1 + lin_b1 * lin_y1[0] -
+				lin_a1 * lin_y2[1] - lin_a2 * lin_y2[0];*/
+        /*MAP_BS update*/
+        linout2= lin_gain*lin_b0 * linout1 + lin_b1 * lin_y1[0] -
 				lin_a1 * lin_y2[1] - lin_a2 * lin_y2[0];
 		
 		lin_y2[0]= lin_y2[1];
@@ -476,16 +482,16 @@ uint process_chan(REAL *out_buffer,REAL *in_buffer)
 		{			
 			compressedNonlin= a * nonlinout2a;
 		}
-		else if(abs_x>0.0)//compress
+		else// if(abs_x>0.0)//compress
 		{	
 			
-			compressedNonlin=SIGN(nonlinout2a) * ctBM * (REAL)expk(c * logk((accum)a*abs_x*recip_ctBM));
-			//compressedNonlin= sign * ctBM * exp(c * log(a * abs_x * recip_ctBM));
+			compressedNonlin=SIGN(nonlinout2a) * ctBM * (REAL)expk(c * logk((accum)(a*(abs_x*recip_ctBM))));
+			//compressedNonlin= SIGN(nonlinout2a) * ctBM * exp((REAL)c * log(a * (abs_x / ctBM)));
 		}	
-		else
+		/*else
 		{
 			compressedNonlin=0.0;
-		}			
+		}			*/
 
 		//stage 3 
 		nonlinout1b= nlin_b0 * compressedNonlin + nlin_b1 * nlin_x1b -
@@ -502,8 +508,10 @@ uint process_chan(REAL *out_buffer,REAL *in_buffer)
 		nlin_y2b[1]= nonlinout2b;
 	
 		//save to buffer
-		out_buffer[i]=linout2*lin_gain + nonlinout2b;
-		//out_buffer[i]=compressedNonlin;//nlin_b0;//nonlinout1a;//nonlinout2b;//linout1;//nonlinout1a;
+		//out_buffer[i]=linout2*lin_gain + nonlinout2b;
+		//MAP_BS update
+		out_buffer[i]=linout2 + nonlinout2b;
+		//out_buffer[i]=in_buffer[i];//nonlinout1a;//compressedNonlin;//nlin_b0;//nonlinout1a;//nonlinout2b;//linout1;//nonlinout1a;
 	}
 	//log_info("processing complete %d",seg_index);
 	return segment_offset;
@@ -559,7 +567,7 @@ void transfer_handler(uint tid, uint ttag)
 		if(key!=0)
 		{
             //send MC packet to connected IHC/AN models
-            log_info("sending write complete packet %d",seg_index);
+            //log_info("sending write complete packet %d",seg_index);
             while (!spin1_send_mc_packet(key, 0, NO_PAYLOAD))
             {
                 spin1_delay_us(1);
@@ -595,7 +603,7 @@ void command_received(uint mc_key, uint null)
 
         else if (sync_count==num_ihcans)
         {
-            log_info("sending ack packet to OME\n");
+            //log_info("sending ack packet to OME\n");
             //wait for random delay to prevent network lockup
             //spin1_delay_us(delay);
             //now all acknowledgments have been received from the child IHCAN models, send acknowledgement back to parent OME
@@ -615,7 +623,7 @@ void command_received(uint mc_key, uint null)
     else if (command == 1)//acknowledgement packet received from a child IHCAN
     {
         sync_count++;
-        log_info("ack mcpacket received sync_count=%d seg_index=%d\n",sync_count,seg_index);
+       // log_info("ack mcpacket received sync_count=%d seg_index=%d\n",sync_count,seg_index);
     }
 
 
@@ -653,7 +661,7 @@ void data_read(uint mc_key, uint payload)
             }
             else
             {
-                dtcm_buffer_b[MC_seg_idx] = MC_union.f;
+                dtcm_buffer_b[MC_seg_idx-1] = MC_union.f;
                 //completed filling a segment of input values
                 if(MC_seg_idx>=SEGSIZE)
                 {
@@ -676,8 +684,8 @@ void data_read(uint mc_key, uint payload)
 void app_done ()
 {
   // report simulation time
-  io_printf (IO_BUF, "[core %d] simulation lasted %d ticks\n", coreID,
-             spin1_get_simulation_time());
+/*  io_printf (IO_BUF, "[core %d] simulation lasted %d ticks\n", coreID,
+             spin1_get_simulation_time());*/
 
   //copy profile data
 #ifdef PROFILE
@@ -690,7 +698,7 @@ void app_done ()
   
   // say goodbye
   io_printf (IO_BUF, "[core %d] stopping simulation\n", coreID);
-  io_printf (IO_BUF, "[core %d] -------------------\n", coreID);
+ // io_printf (IO_BUF, "[core %d] -------------------\n", coreID);
 }
 
 void c_main()
