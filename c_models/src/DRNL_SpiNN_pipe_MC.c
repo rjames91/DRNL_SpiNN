@@ -150,7 +150,7 @@ void app_init(void)
     key=params[KEY];
 
     //get the mask needed for comms protocol from MC keys
-    mask = 1;
+    mask = 3;//1;
 
     num_ihcans=params[NUM_IHCAN];
 
@@ -159,14 +159,14 @@ void app_init(void)
     delay = params[DELAY];
 
   //  log_info("delay=%d\n",delay);
-   /* log_info("key=%d\n",key);
+    log_info("key=%d\n",key);
     log_info("ome key=%d\n",ome_key);
   //  log_info("mask=%d\n",mask);
     //log_info("data_size=%d",data_size);
 
     //log_info("num_ihcans=%d\n",num_ihcans);
 
-    log_info("CF=%d\n",drnl_cf);*/
+    log_info("CF=%d\n",drnl_cf);
 
     //Get sampling frequency
     sampling_frequency = params[FS];
@@ -359,7 +359,7 @@ void app_end(uint null_a,uint null_b)
     {
         //send end MC packet to child IHCANs
         //log_info("sending final packet to IHCANs\n");
-        while (!spin1_send_mc_packet(key+1, 0, NO_PAYLOAD)) {
+        while (!spin1_send_mc_packet(key|1, 0, NO_PAYLOAD)) {
             spin1_delay_us(1);
         }
         //wait for acknowledgment from child IHCANs
@@ -372,7 +372,7 @@ void app_end(uint null_a,uint null_b)
     //random delay to prevent network lock up
     //spin1_delay_us(delay);
     //send final ack packet back to parent OME
-    while (!spin1_send_mc_packet(ome_key+1, 0, NO_PAYLOAD)) {
+    while (!spin1_send_mc_packet(ome_key|2, 0, NO_PAYLOAD)) {
         spin1_delay_us(1);
     }
     io_printf (IO_BUF, "spinn_exit %d\n",seg_index);
@@ -514,6 +514,7 @@ uint process_chan(REAL *out_buffer,REAL *in_buffer)
 		//out_buffer[i]=in_buffer[i];//nonlinout1a;//compressedNonlin;//nlin_b0;//nonlinout1a;//nonlinout2b;//linout1;//nonlinout1a;
 	}
 	//log_info("processing complete %d",seg_index);
+	MOCspikeCount = 0;
 	return segment_offset;
 }
 
@@ -589,13 +590,14 @@ void command_received(uint mc_key, uint null)
     uint command = mc_key & mask;
     //log_info("command tx");
 
-    if(command == 0 && seg_index==0)//ready to send packet received from OME
+    //if(command == 0 && seg_index==0)//ready to send packet received from OME
+    if(command == 1 && seg_index==0)//ready to send packet received from OME
     {
         if (sync_count<num_ihcans && key!=0)//waiting for acknowledgement from child IHCANs
         {
             //log_info("sending r2s packet, ack count=%d, total ihcans=%d",sync_count,num_ihcans);
             //sending ready to send MC packet to connected IHCAN models
-            while (!spin1_send_mc_packet(key+1, 0, NO_PAYLOAD))
+            while (!spin1_send_mc_packet(key|1, 0, NO_PAYLOAD))
             {
                 spin1_delay_us(1);
             }
@@ -607,7 +609,7 @@ void command_received(uint mc_key, uint null)
             //wait for random delay to prevent network lockup
             //spin1_delay_us(delay);
             //now all acknowledgments have been received from the child IHCAN models, send acknowledgement back to parent OME
-            while (!spin1_send_mc_packet(ome_key+1, 0, NO_PAYLOAD))
+            while (!spin1_send_mc_packet(ome_key|2, 0, NO_PAYLOAD))
             {
                 spin1_delay_us(1);
             }
@@ -615,17 +617,22 @@ void command_received(uint mc_key, uint null)
         }
     }
 
-    else if (command == 0 && seg_index>0)
+   // else if (command == 0 && seg_index>0)
+    else if (command == 1 && seg_index>0)
     {
         spin1_schedule_callback(app_end,NULL,NULL,2);
     }
 
-    else if (command == 1)//acknowledgement packet received from a child IHCAN
+    //else if (command == 1)//acknowledgement packet received from a child IHCAN
+    else if (command == 2)//acknowledgement packet received from a child IHCAN
     {
         sync_count++;
        // log_info("ack mcpacket received sync_count=%d seg_index=%d\n",sync_count,seg_index);
     }
-
+    else if (command == 0)
+    {
+        MOCspikeCount++;
+    }
 
 
 }
