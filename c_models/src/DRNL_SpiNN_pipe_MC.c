@@ -348,7 +348,10 @@ void app_init(void)
 #ifdef PROFILE
     // configure timer 2 for profiling
     // enabled, free running, interrupt disabled, no pre-scale, 32 bit, free-running mode
-    tc[T2_CONTROL] = TIMER2_CONF;
+    //tc[T2_CONTROL] = TIMER2_CONF;
+        // Setup profiler
+    profiler_init(
+        data_specification_get_region(1, data_address));
 #endif
     
 }
@@ -419,7 +422,10 @@ void data_write(uint null_a, uint null_b)
 }
 
 uint process_chan(REAL *out_buffer,REAL *in_buffer)
-{  
+{
+    #ifdef PROFILE
+    profiler_write_entry_disable_irq_fiq(PROFILER_ENTER | PROFILER_TIMER);
+    #endif
 	//uint segment_offset=SEGSIZE*(seg_index-1);
 	uint segment_offset=SEGSIZE*(cbuff_index);
 	uint i;		
@@ -515,6 +521,10 @@ uint process_chan(REAL *out_buffer,REAL *in_buffer)
 	}
 	//log_info("processing complete %d",seg_index);
 	MOCspikeCount = 0;
+
+	#ifdef PROFILE
+    profiler_write_entry_disable_irq_fiq(PROFILER_EXIT | PROFILER_TIMER);
+    #endif
 	return segment_offset;
 }
 
@@ -696,11 +706,7 @@ void app_done ()
 
   //copy profile data
 #ifdef PROFILE
-  //io_printf (IO_BUF, "[core %d] saving profile data...\n", coreID);
-	for (uint i=0;i<3*TOTAL_TICKS;i++)
-	{
-	//	profile_buffer[i]  = dtcm_profile_buffer[i];
-	}
+	  profiler_finalise();
 #endif
   
   // say goodbye
