@@ -19,11 +19,15 @@
 #include "stdfix-exp.h"
 #include "log.h"
 #include <data_specification.h>
+#include <profiler.h>
+#include <profile_tags.h>
+#include <simulation.h>
+
 
 #define TIMER_TICK_PERIOD 3600//2600//2300//REALTIME (23ms to process 100 44100Hz samples TODO: make this dependent on numfibres
 
 #define TOTAL_TICKS 100//240//173//197
-//#define PROFILE
+#define PROFILE
 //#define LOOP_PROFILE
 //#define PRINT
 
@@ -87,6 +91,12 @@ REAL *sdramin_buffer;
 REAL *sdramout_buffer;
 REAL *profile_buffer;
 
+//data spec regions
+typedef enum regions {
+    SYSTEM,
+    PARAMS,
+    RECORDING,
+    PROFILER}regions;
 // The parameters to be read from memory
 enum params {
     DATA_SIZE = 0,
@@ -118,21 +128,25 @@ uint sampling_frequency;
 //application initialisation
 void app_init(void)
 {
-
 	seg_index=0;
 	cbuff_index=0;
 	cbuff_numseg=3;
 	read_switch=0;
 	write_switch=0;
 
-	/* say hello */
-	
 	//io_printf (IO_BUF, "[core %d] -----------------------\n", coreID);
-	io_printf (IO_BUF, "[core %d] starting simulation\n", coreID);
+	//io_printf (IO_BUF, "[core %d] starting simulation\n", coreID);
 
     //obtain data spec
 	address_t data_address = data_specification_get_data_address();
     address_t params = data_specification_get_region(0, data_address);
+
+    /*if (!simulation_initialise(
+        data_specification_get_region(SYSTEM, data_address),
+        APPLICATION_NAME_HASH, NULL, NULL,
+        NULL, 1, 0)) {
+    return false;
+    }*/
 
 	// Get the size of the data in words
     data_size = params[DATA_SIZE];
@@ -146,8 +160,10 @@ void app_init(void)
     ome_appID = params[OMEAPPID];
 
     ome_key=params[OME_KEY];
+    log_info("omekey:%d",ome_key);
 
     key=params[KEY];
+    log_info("key:%d",key);
 
     //get the mask needed for comms protocol from MC keys
     mask = 3;//1;
@@ -159,8 +175,8 @@ void app_init(void)
     delay = params[DELAY];
 
   //  log_info("delay=%d\n",delay);
-    log_info("key=%d\n",key);
-    log_info("ome key=%d\n",ome_key);
+    //log_info("key=%d\n",key);
+    //log_info("ome key=%d\n",ome_key);
   //  log_info("mask=%d\n",mask);
     //log_info("data_size=%d",data_size);
 
@@ -195,10 +211,10 @@ void app_init(void)
 	dtcm_buffer_b = (REAL *) sark_alloc (SEGSIZE, sizeof(REAL));
 	dtcm_buffer_x = (REAL *) sark_alloc (SEGSIZE, sizeof(REAL));
 	dtcm_buffer_y = (REAL *) sark_alloc (SEGSIZE, sizeof(REAL));
-	dtcm_profile_buffer = (REAL *) sark_alloc (3*TOTAL_TICKS, sizeof(REAL));
+	//dtcm_profile_buffer = (REAL *) sark_alloc (3*TOTAL_TICKS, sizeof(REAL));
 	
 	if (dtcm_buffer_a == NULL ||dtcm_buffer_b == NULL ||dtcm_buffer_x == NULL ||dtcm_buffer_y == NULL 
-			||  sdramout_buffer == NULL ||  dtcm_profile_buffer == NULL)
+			||  sdramout_buffer == NULL )//||  dtcm_profile_buffer == NULL)
 	/*if (sdramout_buffer == NULL || sdramin_buffer == NULL || dtcm_buffer_y == NULL 
 			|| dtcm_buffer_a == NULL || dtcm_buffer_b == NULL || dtcm_profile_buffer == NULL ||dtcm_buffer_x == NULL)*/
 	{
@@ -227,10 +243,9 @@ void app_init(void)
 
 		for (uint i=0;i<3 * TOTAL_TICKS;i++)
 		{
-			dtcm_profile_buffer[i]  = 0;
+			//dtcm_profile_buffer[i]  = 0;
 			//profile_buffer[i]  = 0;
 		}
-		
 		/*io_printf (IO_BUF, "[core %d] dtcm buffer a @ 0x%08x\n", coreID,
 				   (uint) dtcm_buffer_a);
 		io_printf (IO_BUF, "[core %d] sdram out buffer @ 0x%08x\n", coreID,
@@ -378,9 +393,9 @@ void app_end(uint null_a,uint null_b)
     while (!spin1_send_mc_packet(ome_key|2, 0, NO_PAYLOAD)) {
         spin1_delay_us(1);
     }
-    io_printf (IO_BUF, "spinn_exit %d\n",seg_index);
+    //io_printf (IO_BUF, "spinn_exit %d\n",seg_index);
+    //simulation_exit();
     spin1_exit (0);
-
 }
 
 void data_write(uint null_a, uint null_b)
@@ -407,7 +422,7 @@ void data_write(uint null_a, uint null_b)
 #endif
 		}
 #ifdef PROFILE
-  start_count_write = tc[T2_COUNT];
+  //start_count_write = tc[T2_COUNT];
 #endif
 		spin1_dma_transfer(DMA_WRITE,&sdramout_buffer[out_index],dtcm_buffer_out,DMA_WRITE,
 		  						SEGSIZE*sizeof(REAL));
@@ -423,9 +438,6 @@ void data_write(uint null_a, uint null_b)
 
 uint process_chan(REAL *out_buffer,REAL *in_buffer)
 {
-    #ifdef PROFILE
-    profiler_write_entry_disable_irq_fiq(PROFILER_ENTER | PROFILER_TIMER);
-    #endif
 	//uint segment_offset=SEGSIZE*(seg_index-1);
 	uint segment_offset=SEGSIZE*(cbuff_index);
 	uint i;		
@@ -433,15 +445,9 @@ uint process_chan(REAL *out_buffer,REAL *in_buffer)
 
 	for(i=0;i<SEGSIZE;i++)
 	{
-	/*	#ifdef PROFILE
-		if(i==0)
-		{
-		  start_count_process = tc[T2_COUNT];
-		}
-		#endif*/
-
+	    //if(in_buffer[i]!=0.0)log_info("%k",(accum)in_buffer[i]);
 		//Linear Path
-		linout1= lin_b0 * in_buffer[i] + lin_b1 * lin_x1 - 
+		linout1= lin_b0 * in_buffer[i] + lin_b1 * lin_x1 -
 				lin_a1 * lin_y1[1] - lin_a2 * lin_y1[0];		
 
 		lin_x1=in_buffer[i];
@@ -478,9 +484,7 @@ uint process_chan(REAL *out_buffer,REAL *in_buffer)
         // MOC= 1 when all MOCnow are zero
         // 0 < MOC < 1
         MOC= 1./(1+MOCnow1+MOCnow2+MOCnow3);
-
 		nonlinout2a*=MOC;
-
 		//stage 2
 		abs_x= ABS(nonlinout2a);
 
@@ -489,8 +493,7 @@ uint process_chan(REAL *out_buffer,REAL *in_buffer)
 			compressedNonlin= a * nonlinout2a;
 		}
 		else// if(abs_x>0.0)//compress
-		{	
-			
+		{
 			compressedNonlin=SIGN(nonlinout2a) * ctBM * (REAL)expk(c * logk((accum)(a*(abs_x*recip_ctBM))));
 			//compressedNonlin= SIGN(nonlinout2a) * ctBM * exp((REAL)c * log(a * (abs_x / ctBM)));
 		}	
@@ -512,27 +515,25 @@ uint process_chan(REAL *out_buffer,REAL *in_buffer)
 
 		nlin_y2b[0]= nlin_y2b[1];
 		nlin_y2b[1]= nonlinout2b;
-	
+
 		//save to buffer
 		//out_buffer[i]=linout2*lin_gain + nonlinout2b;
 		//MAP_BS update
 		out_buffer[i]=linout2 + nonlinout2b;
-		//out_buffer[i]=in_buffer[i];//nonlinout1a;//compressedNonlin;//nlin_b0;//nonlinout1a;//nonlinout2b;//linout1;//nonlinout1a;
+		//out_buffer[i]=in_buffer[i];//linout1;//nonlinout1a;//compressedNonlin;//nlin_b0;//nonlinout1a;//nonlinout2b;//linout1;//nonlinout1a;
 	}
 	//log_info("processing complete %d",seg_index);
 	MOCspikeCount = 0;
-
-	#ifdef PROFILE
-    profiler_write_entry_disable_irq_fiq(PROFILER_EXIT | PROFILER_TIMER);
-    #endif
 	return segment_offset;
 }
 
 void process_handler(uint null_a,uint null_b)
 {
+    	#ifdef PROFILE
+        //profiler_write_entry_disable_irq_fiq(PROFILER_ENTER | PROFILER_TIMER);
+        #endif
     //increment segment index
 		seg_index++;
-
 	    //check circular buffer
 		if(cbuff_index<cbuff_numseg-1)
 		{    //increment circular buffer index
@@ -542,11 +543,11 @@ void process_handler(uint null_a,uint null_b)
 		{
 		    cbuff_index=0;
 		}
-
 		//choose current buffers
 		if(!read_switch && !write_switch)
 		{
 			index_x=process_chan(dtcm_buffer_x,dtcm_buffer_b);
+
 		}
 		else if(!read_switch && write_switch)
 		{
@@ -560,19 +561,21 @@ void process_handler(uint null_a,uint null_b)
 		{
 			index_y=process_chan(dtcm_buffer_y,dtcm_buffer_a);
 		}
-
-		spin1_trigger_user_event(NULL,NULL);
-
+    	spin1_trigger_user_event(NULL,NULL);
 }
 
 void transfer_handler(uint tid, uint ttag)
 {
-	if (ttag==DMA_READ)
+	/*if (ttag==DMA_READ)
 	{
 	//	log_info("DMA_READ tag");
 	}
-	else if (ttag==DMA_WRITE)
+	else */
+	if (ttag==DMA_WRITE)
 	{
+	    #ifdef PROFILE
+        profiler_write_entry_disable_irq_fiq(PROFILER_EXIT | PROFILER_TIMER);
+        #endif
 		//flip write buffers
 		write_switch=!write_switch;
 		if(key!=0)
@@ -593,8 +596,6 @@ void transfer_handler(uint tid, uint ttag)
 	}
 }
 
-//TODO: modify this to have an additional command corresponding to MOC spikes
-//on receipt of an MOC spike increment MOCspikesCount
 void command_received(uint mc_key, uint null)
 {
     uint command = mc_key & mask;
@@ -615,7 +616,7 @@ void command_received(uint mc_key, uint null)
 
         else if (sync_count==num_ihcans)
         {
-            //log_info("sending ack packet to OME\n");
+            log_info("ack");
             //wait for random delay to prevent network lockup
             //spin1_delay_us(delay);
             //now all acknowledgments have been received from the child IHCAN models, send acknowledgement back to parent OME
@@ -639,14 +640,12 @@ void command_received(uint mc_key, uint null)
         sync_count++;
        // log_info("ack mcpacket received sync_count=%d seg_index=%d\n",sync_count,seg_index);
     }
-    else if (command == 0)
+    else if (command == 0)//on receipt of an MOC spike increment MOCspikesCount
     {
         MOCspikeCount++;
     }
-
-
 }
-uint check=0;
+//uint check=0;
 //DMA read
 void data_read(uint mc_key, uint payload)
 {
@@ -654,25 +653,29 @@ void data_read(uint mc_key, uint payload)
     //payload is OME output value therefore next segment in input buffer memory is ready
     //convert payload to float
     MC_union.u = payload;
-
         //collect the next segment of samples and copy into DTCM
         if(test_DMA == TRUE)
         {
            // log_info("payload = %k",(accum)MC_union.f);
             //assign recieve buffer
             MC_seg_idx++;
-            if(MC_union.f==0.0) check=1;
-
+            //if(MC_union.f!=0.0) check=1;
+            #ifdef PROFILE
+            //if(MC_seg_idx==1)profiler_write_entry_disable_irq_fiq(PROFILER_ENTER | PROFILER_TIMER);
+            //if(MC_seg_idx>=SEGSIZE)profiler_write_entry_disable_irq_fiq(PROFILER_EXIT | PROFILER_TIMER);
+            if(MC_seg_idx>=SEGSIZE)profiler_write_entry_disable_irq_fiq(PROFILER_ENTER | PROFILER_TIMER);
+            #endif
             if(!read_switch)
             {
                 dtcm_buffer_a[MC_seg_idx-1] = MC_union.f;
                 //completed filling a segment of input values
                 if(MC_seg_idx>=SEGSIZE)
                 {
+                    //log_info("rxa: %k",(accum)dtcm_buffer_a[MC_seg_idx-1]);
                     MC_seg_idx=0;
                     read_switch=1;
-                   // if(check==1)log_info("zero input received! %d",seg_index);
-                    check=0;
+                    //if(check==1)log_info("non zero input received! %d",(accum)MC_union.f);
+                    //check=0;
                     spin1_schedule_callback(process_handler,0,0,1);
                 }
             }
@@ -682,10 +685,11 @@ void data_read(uint mc_key, uint payload)
                 //completed filling a segment of input values
                 if(MC_seg_idx>=SEGSIZE)
                 {
+                    //log_info("rxb: %k",(accum)dtcm_buffer_b[MC_seg_idx-1]);
                     MC_seg_idx=0;
                     read_switch=0;
-                  //  if(check==1)log_info("zero input received! %d",seg_index);
-                    check=0;
+                    //if(check==1)log_info("non zero input received! %d",(accum)MC_union.f);
+                    //check=0;
                     spin1_schedule_callback(process_handler,0,0,1);
                 }
             }
@@ -710,7 +714,7 @@ void app_done ()
 #endif
   
   // say goodbye
-  io_printf (IO_BUF, "[core %d] stopping simulation\n", coreID);
+ // io_printf (IO_BUF, "sim exit\n");
  // io_printf (IO_BUF, "[core %d] -------------------\n", coreID);
 }
 
@@ -719,24 +723,23 @@ void c_main()
   // Get core and chip IDs
   coreID = spin1_get_core_id ();
   chipID = spin1_get_chip_id ();
-
   //set timer tick
-  spin1_set_timer_tick (TIMER_TICK_PERIOD);
-
+  //spin1_set_timer_tick (TIMER_TICK_PERIOD);
   app_init();
-
   //setup callbacks
   //process channel once data input has been read to DTCM
   spin1_callback_on (DMA_TRANSFER_DONE,transfer_handler,0);
+  //simulation_dma_transfer_done_callback_on(DMA_READ,transfer_handler);
+
   //reads from DMA to DTCM every tick
   //spin1_callback_on (TIMER_TICK,data_read,-1);
   spin1_callback_on (MCPL_PACKET_RECEIVED,data_read,-1);
   spin1_callback_on (MC_PACKET_RECEIVED,command_received,-1);
   spin1_callback_on (USER_EVENT,data_write,0);
 
-  spin1_start (SYNC_WAIT);
-  
-  app_done ();
+  //simulation_run();
 
+  spin1_start (SYNC_WAIT);
+  app_done ();
 }
 
