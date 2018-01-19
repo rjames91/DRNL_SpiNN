@@ -23,13 +23,7 @@
 #include <profile_tags.h>
 #include <simulation.h>
 
-
-#define TIMER_TICK_PERIOD 3600//2600//2300//REALTIME (23ms to process 100 44100Hz samples TODO: make this dependent on numfibres
-
-#define TOTAL_TICKS 100//240//173//197
 #define PROFILE
-//#define LOOP_PROFILE
-//#define PRINT
 
 //=========GLOBAL VARIABLES============//
 REAL Fs,dt,max_rate;
@@ -48,18 +42,23 @@ uint MC_seg_idx;
 uint_float_union MC_union;
 uint ack_rx=0;
 
-REAL cf,lin_cf,nlin_b0,nlin_b1,nlin_b2,nlin_a1,nlin_a2,nlBWp,nlBWq,linBWp,linBWq,linCFp,linCFq,
+/*REAL cf,lin_cf,nlin_b0,nlin_b1,nlin_b2,nlin_a1,nlin_a2,nlBWp,nlBWq,linBWp,linBWq,linCFp,linCFq,
     nlin_bw,nlin_phi,nlin_theta,nlin_cos_theta,nlin_sin_theta,nlin_alpha,
     lin_b0,lin_b1,lin_b2,lin_a1,lin_a2,lin_bw,lin_phi,lin_theta,lin_cos_theta,
     lin_sin_theta,lin_alpha,lin_gain,
 
-a,ctBM,dispThresh,recip_ctBM,compressedNonlin,MOC,MOCnow1,MOCnow2,MOCnow3,MOCdec1,MOCdec2,MOCdec3,MOCfactor1,
-MOCfactor2,MOCfactor3,rateToAttentuationFactor,MOCspikeCount;
+a,ctBM,dispThresh,recip_ctBM,MOC,MOCnow1,MOCnow2,MOCnow3,MOCdec1,MOCdec2,MOCdec3,MOCfactor1,
+MOCfactor2,MOCfactor3,rateToAttentuationFactor,MOCspikeCount;*/
 //ctBM,dispThresh;
 
-accum c;
+REAL cf,nlin_b0,nlin_b1,nlin_b2,nlin_a1,nlin_a2,
+    lin_b0,lin_b1,lin_b2,lin_a1,lin_a2,lin_gain,
 
-REAL complex lin_z1,lin_z2,lin_z3,lin_tf,nlin_z1,nlin_z2,nlin_z3,nlin_tf;
+a,ctBM,dispThresh,recip_ctBM,MOC,MOCnow1,MOCnow2,MOCnow3,MOCdec1,MOCdec2,MOCdec3,MOCfactor1,
+MOCfactor2,MOCfactor3,MOCspikeCount;
+
+accum c;
+//
 
 REAL lin_x1;
 REAL lin_y1[2],lin_y2[2];
@@ -81,15 +80,15 @@ int end_count_write;
 
 uint sync_count=0;
 
-REAL *dtcm_buffer_a;
-REAL *dtcm_buffer_b;
-REAL *dtcm_buffer_x;
-REAL *dtcm_buffer_y;
-REAL *dtcm_profile_buffer;
+float *dtcm_buffer_a;
+float *dtcm_buffer_b;
+float *dtcm_buffer_x;
+float *dtcm_buffer_y;
+float *dtcm_profile_buffer;
 
-REAL *sdramin_buffer;
-REAL *sdramout_buffer;
-REAL *profile_buffer;
+float *sdramin_buffer;
+float *sdramout_buffer;
+float *profile_buffer;
 
 //data spec regions
 typedef enum regions {
@@ -141,13 +140,6 @@ void app_init(void)
 	address_t data_address = data_specification_get_data_address();
     address_t params = data_specification_get_region(0, data_address);
 
-    /*if (!simulation_initialise(
-        data_specification_get_region(SYSTEM, data_address),
-        APPLICATION_NAME_HASH, NULL, NULL,
-        NULL, 1, 0)) {
-    return false;
-    }*/
-
 	// Get the size of the data in words
     data_size = params[DATA_SIZE];
 
@@ -195,8 +187,8 @@ void app_init(void)
 	//hack for smaller SDRAM intermediate buffers
 	data_size=cbuff_numseg*SEGSIZE;
 
-	sdramout_buffer = (REAL *) sark_xalloc (sv->sdram_heap,
-					 data_size * sizeof(REAL),
+	sdramout_buffer = (float *) sark_xalloc (sv->sdram_heap,
+					 data_size * sizeof(float),
 					 placement_coreID,
 					 ALLOC_LOCK);
 
@@ -207,10 +199,10 @@ void app_init(void)
 	
 	// and a buffer in DTCM
 	
-	dtcm_buffer_a = (REAL *) sark_alloc (SEGSIZE, sizeof(REAL));
-	dtcm_buffer_b = (REAL *) sark_alloc (SEGSIZE, sizeof(REAL));
-	dtcm_buffer_x = (REAL *) sark_alloc (SEGSIZE, sizeof(REAL));
-	dtcm_buffer_y = (REAL *) sark_alloc (SEGSIZE, sizeof(REAL));
+	dtcm_buffer_a = (float *) sark_alloc (SEGSIZE, sizeof(float));
+	dtcm_buffer_b = (float *) sark_alloc (SEGSIZE, sizeof(float));
+	dtcm_buffer_x = (float *) sark_alloc (SEGSIZE, sizeof(float));
+	dtcm_buffer_y = (float *) sark_alloc (SEGSIZE, sizeof(float));
 	//dtcm_profile_buffer = (REAL *) sark_alloc (3*TOTAL_TICKS, sizeof(REAL));
 	
 	if (dtcm_buffer_a == NULL ||dtcm_buffer_b == NULL ||dtcm_buffer_x == NULL ||dtcm_buffer_y == NULL 
@@ -241,24 +233,15 @@ void app_init(void)
 			sdramout_buffer[i]  = 0;
 		}
 
-		for (uint i=0;i<3 * TOTAL_TICKS;i++)
-		{
-			//dtcm_profile_buffer[i]  = 0;
-			//profile_buffer[i]  = 0;
-		}
-		/*io_printf (IO_BUF, "[core %d] dtcm buffer a @ 0x%08x\n", coreID,
-				   (uint) dtcm_buffer_a);
-		io_printf (IO_BUF, "[core %d] sdram out buffer @ 0x%08x\n", coreID,
-				   (uint) sdramout_buffer);
-		io_printf (IO_BUF, "[core %d] sdram in buffer @ 0x%08x\n", coreID,
-				   (uint) sdramin_buffer);	
-		io_printf (IO_BUF, "[core %d] profile buffer @ 0x%08x\n", coreID,
-				   (uint) profile_buffer);	*/
         MC_seg_idx=0;
 	}
 
 	
 	//============MODEL INITIALISATION================//
+    double complex lin_z1,lin_z2,lin_z3,lin_tf,nlin_z1,nlin_z2,nlin_z3,nlin_tf;
+    double rateToAttentuationFactor,lin_cf,nlBWp,nlBWq,linBWp,linBWq,linCFp,linCFq,
+        nlin_bw,nlin_phi,nlin_theta,nlin_cos_theta,nlin_sin_theta,nlin_alpha,
+        lin_bw,lin_phi,lin_theta,lin_cos_theta,lin_sin_theta,lin_alpha;
 
 	//set center frequency
 	//cf=4000.0;
@@ -268,8 +251,8 @@ void app_init(void)
 	nlBWq=180.0;
 	nlBWp=0.14;
 	nlin_bw=nlBWp * cf + nlBWq;
-	nlin_phi=2.0 * (REAL)PI * nlin_bw * dt;
-	nlin_theta= 2.0 * (REAL)PI * cf * dt;
+	nlin_phi=2.0 * M_PI * nlin_bw * dt;
+	nlin_theta= 2.0 * M_PI * cf * dt;
 	nlin_cos_theta= cos(nlin_theta);
 	nlin_sin_theta= sin(nlin_theta);
 	nlin_alpha= -exp(-nlin_phi) * nlin_cos_theta;
@@ -279,13 +262,19 @@ void app_init(void)
 	nlin_z2 = (1.0 + nlin_a1 * nlin_cos_theta) - (nlin_a1 * nlin_sin_theta) * _Complex_I;
 	nlin_z3 = (nlin_a2 * cos(2.0 * nlin_theta)) - (nlin_a2 * sin(2.0 * nlin_theta)) * _Complex_I;
 	nlin_tf = (nlin_z2 + nlin_z3) / nlin_z1;
-	nlin_b0 = cabsf(nlin_tf);
+	nlin_b0 = cabs(nlin_tf);
 	nlin_b1 = nlin_alpha * nlin_b0;
+
+	/*io_printf(IO_BUF,"b0:%k\n",(accum)nlin_b0);
+    io_printf(IO_BUF,"b1:%k\n",(accum)nlin_b1);
+	io_printf(IO_BUF,"a1:%k\n",(accum)nlin_a1);
+	io_printf(IO_BUF,"a2:%k\n",(accum)nlin_a2);*/
 
 	//compression algorithm variables
 	a=30e4;//5e4;
 	c=0.25k;
-	ctBM=3.981071705534974e-08;
+	ctBM = 1e-9 * pow(10.0,32.0/20.0);
+	//ctBM=3.981071705534974e-08;
 	recip_ctBM=1.0/ctBM;
 	dispThresh=ctBM/a;
 
@@ -294,11 +283,11 @@ void app_init(void)
 	linBWq=235.0;
 	linBWp=0.2;
 	lin_bw=linBWp * cf + linBWq;
-	lin_phi=2.0 * (REAL)PI * lin_bw * dt;
+	lin_phi=2.0 * M_PI * lin_bw * dt;
 	linCFp=0.62;
 	linCFq=266.0;
 	lin_cf=linCFp*cf+linCFq;
-	lin_theta= 2.0 * (REAL)PI * lin_cf * dt;
+	lin_theta= 2.0 * M_PI * lin_cf * dt;
 	lin_cos_theta= cos(lin_theta);
 	lin_sin_theta= sin(lin_theta);
 	lin_alpha= -exp(-lin_phi) * lin_cos_theta;
@@ -308,7 +297,7 @@ void app_init(void)
 	lin_z2 = (1.0 + lin_a1 * lin_cos_theta) - (lin_a1 * lin_sin_theta) * _Complex_I;
 	lin_z3 = (lin_a2 * cos(2.0 * lin_theta)) - (lin_a2 * sin(2.0 * lin_theta)) * _Complex_I;
 	lin_tf = (lin_z2 + lin_z3) / lin_z1;
-	lin_b0 = cabsf(lin_tf);
+	lin_b0 = cabs(lin_tf);
 	lin_b1 = lin_alpha * lin_b0;
 
 	//starting values
@@ -323,8 +312,6 @@ void app_init(void)
 	nlin_y1a[0]=0.0;
 	nlin_y1a[1]=0.0;
 
-	compressedNonlin=0.0;
-	
 	nlin_y2a[0]=0.0;
 	nlin_y2a[1]=0.0;
 
@@ -373,7 +360,7 @@ void app_init(void)
 
 void app_end(uint null_a,uint null_b)
 {
-    if( sync_count<num_ihcans && key!=0)
+    if( sync_count<num_ihcans)
     {
         //send end MC packet to child IHCANs
         //log_info("sending final packet to IHCANs\n");
@@ -400,7 +387,7 @@ void app_end(uint null_a,uint null_b)
 
 void data_write(uint null_a, uint null_b)
 {
-	REAL *dtcm_buffer_out;
+	float *dtcm_buffer_out;
 	uint out_index;
 	
 	if(test_DMA == TRUE)
@@ -425,7 +412,7 @@ void data_write(uint null_a, uint null_b)
   //start_count_write = tc[T2_COUNT];
 #endif
 		spin1_dma_transfer(DMA_WRITE,&sdramout_buffer[out_index],dtcm_buffer_out,DMA_WRITE,
-		  						SEGSIZE*sizeof(REAL));
+		  						SEGSIZE*sizeof(float));
 #ifdef PRINT
 		log_info("[core %d] segment %d written @ 0x%08x\n", coreID,seg_index,
 							  (uint) &sdramout_buffer[out_index]);
@@ -436,19 +423,22 @@ void data_write(uint null_a, uint null_b)
 	}
 }
 
-uint process_chan(REAL *out_buffer,REAL *in_buffer)
+uint process_chan(float *out_buffer,float *in_buffer)
 {
 	//uint segment_offset=SEGSIZE*(seg_index-1);
 	uint segment_offset=SEGSIZE*(cbuff_index);
 	uint i;		
-	REAL linout1,linout2,nonlinout1a,nonlinout2a,nonlinout1b,nonlinout2b,abs_x;
+	REAL linout1,linout2,nonlinout1a,nonlinout2a,nonlinout1b,nonlinout2b,abs_x,compressedNonlin;
+	REAL filter_1;
 
 	for(i=0;i<SEGSIZE;i++)
 	{
 	    //if(in_buffer[i]!=0.0)log_info("%k",(accum)in_buffer[i]);
 		//Linear Path
-		linout1= lin_b0 * in_buffer[i] + lin_b1 * lin_x1 -
-				lin_a1 * lin_y1[1] - lin_a2 * lin_y1[0];		
+		/*linout1= lin_b0 * in_buffer[i] + lin_b1 * lin_x1 -
+				lin_a1 * lin_y1[1] - lin_a2 * lin_y1[0];		*/
+        filter_1 = lin_b0 * in_buffer[i] + lin_b1 * lin_x1;
+        linout1= filter_1 - lin_a1 * lin_y1[1] - lin_a2 * lin_y1[0];
 
 		lin_x1=in_buffer[i];
 		lin_y1[0]=lin_y1[1];
@@ -457,23 +447,30 @@ uint process_chan(REAL *out_buffer,REAL *in_buffer)
 		/*linout2= lin_b0 * linout1 + lin_b1 * lin_y1[0] -
 				lin_a1 * lin_y2[1] - lin_a2 * lin_y2[0];*/
         /*MAP_BS update*/
-        linout2= lin_gain*lin_b0 * linout1 + lin_b1 * lin_y1[0] -
-				lin_a1 * lin_y2[1] - lin_a2 * lin_y2[0];
+        /*linout2= lin_gain*lin_b0 * linout1 + lin_b1 * lin_y1[0] -
+				lin_a1 * lin_y2[1] - lin_a2 * lin_y2[0];*/
+        filter_1 = lin_gain*lin_b0 * linout1 + lin_b1 * lin_y1[0];
+        linout2= filter_1 - lin_a1 * lin_y2[1] - lin_a2 * lin_y2[0];
 		
 		lin_y2[0]= lin_y2[1];
 		lin_y2[1]= linout2;
 
 		//non-linear path
 		//stage 1
-		nonlinout1a= nlin_b0 * in_buffer[i] + nlin_b1 * nlin_x1a - 
-				nlin_a1 * nlin_y1a[1] - nlin_a2 * nlin_y1a[0];
+		/*nonlinout1a= nlin_b0 * in_buffer[i] + nlin_b1 * nlin_x1a -
+				     nlin_a1 * nlin_y1a[1] - nlin_a2 * nlin_y1a[0];*/
+        filter_1 =  nlin_b0 * in_buffer[i] + nlin_b1 * nlin_x1a;
+        nonlinout1a = filter_1 - nlin_a1 * nlin_y1a[1] - nlin_a2 * nlin_y1a[0];
 
 		nlin_x1a=in_buffer[i];
 		nlin_y1a[0]=nlin_y1a[1];
 		nlin_y1a[1]=nonlinout1a;
 
-		nonlinout2a= nlin_b0 * nonlinout1a + nlin_b1 * nlin_y1a[0] - 
-				nlin_a1 * nlin_y2a[1] - nlin_a2 * nlin_y2a[0];
+		/*nonlinout2a= nlin_b0 * nonlinout1a + nlin_b1 * nlin_y1a[0] -
+				     nlin_a1 * nlin_y2a[1] - nlin_a2 * nlin_y2a[0];*/
+        filter_1 = nlin_b0 * nonlinout1a + nlin_b1 * nlin_y1a[0];
+        nonlinout2a = filter_1 - nlin_a1 * nlin_y2a[1] - nlin_a2 * nlin_y2a[0];
+
 		nlin_y2a[0]= nlin_y2a[1];
 		nlin_y2a[1]= nonlinout2a;
 
@@ -495,7 +492,7 @@ uint process_chan(REAL *out_buffer,REAL *in_buffer)
 		else// if(abs_x>0.0)//compress
 		{
 			compressedNonlin=SIGN(nonlinout2a) * ctBM * (REAL)expk(c * logk((accum)(a*(abs_x*recip_ctBM))));
-			//compressedNonlin= SIGN(nonlinout2a) * ctBM * exp((REAL)c * log(a * (abs_x / ctBM)));
+			//compressedNonlin= SIGN(nonlinout2a) * ctBM * exp((double)c * log((double)(a * (abs_x / ctBM))));
 		}	
 		/*else
 		{
@@ -503,24 +500,28 @@ uint process_chan(REAL *out_buffer,REAL *in_buffer)
 		}			*/
 
 		//stage 3 
-		nonlinout1b= nlin_b0 * compressedNonlin + nlin_b1 * nlin_x1b -
-				 nlin_a1 * nlin_y1b[1] - nlin_a2 * nlin_y1b[0];
+		/*nonlinout1b= nlin_b0 * compressedNonlin + nlin_b1 * nlin_x1b -
+				 nlin_a1 * nlin_y1b[1] - nlin_a2 * nlin_y1b[0];*/
+        filter_1 = nlin_b0 * compressedNonlin + nlin_b1 * nlin_x1b;
+        nonlinout1b = filter_1 - nlin_a1 * nlin_y1b[1] - nlin_a2 * nlin_y1b[0];
 
 		nlin_x1b=compressedNonlin;
 		nlin_y1b[0]=nlin_y1b[1];
 		nlin_y1b[1]=nonlinout1b;
 
-		nonlinout2b= nlin_b0 * nonlinout1b + nlin_b1 * nlin_y1b[0] - 
-				nlin_a1 * nlin_y2b[1] - nlin_a2 * nlin_y2b[0];
+		/*nonlinout2b= nlin_b0 * nonlinout1b + nlin_b1 * nlin_y1b[0] -
+				nlin_a1 * nlin_y2b[1] - nlin_a2 * nlin_y2b[0];*/
+        filter_1 = nlin_b0 * nonlinout1b + nlin_b1 * nlin_y1b[0];
+        nonlinout2b = filter_1 - nlin_a1 * nlin_y2b[1] - nlin_a2 * nlin_y2b[0];
 
 		nlin_y2b[0]= nlin_y2b[1];
 		nlin_y2b[1]= nonlinout2b;
 
 		//save to buffer
-		//out_buffer[i]=linout2*lin_gain + nonlinout2b;
+	    //out_buffer[i]=linout2*lin_gain + nonlinout2b;
 		//MAP_BS update
 		out_buffer[i]=linout2 + nonlinout2b;
-		//out_buffer[i]=in_buffer[i];//linout1;//nonlinout1a;//compressedNonlin;//nlin_b0;//nonlinout1a;//nonlinout2b;//linout1;//nonlinout1a;
+		//out_buffer[i]=nonlinout2a;//in_buffer[i];//compressedNonlin;//linout1;//nonlinout1a;//nlin_b0;//nonlinout1a;//nonlinout2b;//linout1;//nonlinout1a;
 	}
 	//log_info("processing complete %d",seg_index);
 	MOCspikeCount = 0;
@@ -578,14 +579,11 @@ void transfer_handler(uint tid, uint ttag)
         #endif
 		//flip write buffers
 		write_switch=!write_switch;
-		if(key!=0)
-		{
-            //send MC packet to connected IHC/AN models
-            //log_info("sending write complete packet %d",seg_index);
-            while (!spin1_send_mc_packet(key, 0, NO_PAYLOAD))
-            {
-                spin1_delay_us(1);
-            }
+        //send MC packet to connected IHC/AN models
+        //log_info("sending write complete packet %d",seg_index);
+        while (!spin1_send_mc_packet(key, 0, NO_PAYLOAD))
+        {
+            spin1_delay_us(1);
         }
 	}
 	else
@@ -604,7 +602,7 @@ void command_received(uint mc_key, uint null)
     //if(command == 0 && seg_index==0)//ready to send packet received from OME
     if(command == 1 && seg_index==0)//ready to send packet received from OME
     {
-        if (sync_count<num_ihcans && key!=0)//waiting for acknowledgement from child IHCANs
+        if (sync_count<num_ihcans)//waiting for acknowledgement from child IHCANs
         {
             //log_info("sending r2s packet, ack count=%d, total ihcans=%d",sync_count,num_ihcans);
             //sending ready to send MC packet to connected IHCAN models

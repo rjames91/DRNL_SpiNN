@@ -8,10 +8,9 @@
 #ifndef IHC_AN_softfloat_H_
 #define IHC_AN_softfloat_H_
 
-#define REAL float
-#define REAL_CONST(x) x##f
-#define REAL_MAX 1e38
-#define PI 3.14159265358979323846f
+#define REAL double //float
+#define REAL_CONST(x) x//x##f
+
 
 #define MAX_CHIPX 1//255
 #define MAX_CHIPY 1//255
