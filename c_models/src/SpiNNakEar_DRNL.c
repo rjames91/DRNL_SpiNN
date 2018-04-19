@@ -91,7 +91,8 @@ enum params {
     NUM_IHCAN,
     CF,
     DELAY,
-    FS
+    FS,
+    OME_DATA_KEY
 };
 
 // The size of the remaining data to be sent
@@ -107,6 +108,7 @@ uint num_ihcans;
 uint drnl_cf;
 uint delay;
 uint sampling_frequency;
+uint ome_data_key;
 
 //application initialisation
 void app_init(void)
@@ -152,6 +154,8 @@ void app_init(void)
     sampling_frequency = params[FS];
     Fs= (REAL)sampling_frequency;
 	dt=(1.0/Fs);
+
+	ome_data_key = params[OME_DATA_KEY];
 
     // Allocate buffers
 	//output results buffer (shared with child IHCANs)
@@ -391,7 +395,7 @@ uint process_chan(REAL *out_buffer,float *in_buffer)
 		nlin_y2a[0]= nlin_y2a[1];
 		nlin_y2a[1]= nonlinout2a;
 
-		//MOC efferent effects 	// TODO: this should be determined by spiking input
+		//MOC efferent effects
         MOCnow1= MOCnow1* MOCdec1+ MOCspikeCount* MOCfactor1;
         MOCnow2= MOCnow2* MOCdec2+ MOCspikeCount* MOCfactor2;
         MOCnow3= MOCnow3* MOCdec3+ MOCspikeCount* MOCfactor3;
@@ -488,92 +492,95 @@ void transfer_handler(uint tid, uint ttag)
 	}
 }
 
-void command_received(uint mc_key, uint null)
+void moc_spike_received(uint mc_key, uint null)
 {
-    //extract comms command from key
-    uint command = mc_key & mask;
-
-    if(command == 1 && seg_index==0)//ready to send packet received from OME
-    {
-        if (sync_count<num_ihcans)//waiting for acknowledgement from child IHCANs
-        {
-            //sending ready to send MC packet to connected IHCAN models
-            while (!spin1_send_mc_packet(key|1, 0, NO_PAYLOAD))
-            {
-                spin1_delay_us(1);
-            }
-        }
-
-        else if (sync_count==num_ihcans)
-        {
-            log_info("ack");
-            //all acknowledgments have been received from the child IHCAN models
-            //send acknowledgement back to parent OME
-            while (!spin1_send_mc_packet(ome_key|2, 0, NO_PAYLOAD))
-            {
-                spin1_delay_us(1);
-            }
-            sync_count=0;
-        }
-    }
-
-    else if (command == 1 && seg_index>0)//simulation finished from OME
-    {
-        spin1_schedule_callback(app_end,NULL,NULL,2);
-    }
-
-    else if (command == 2)//acknowledgement packet received from a child IHCAN
-    {
-        sync_count++;
-    }
-    else if (command == 0)//on receipt of an MOC spike increment MOCspikesCount
-    {
-        MOCspikeCount++;
-    }
+     MOCspikeCount++;
 }
-//DMA read
+
 void data_read(uint mc_key, uint payload)
 {
-    //payload is OME output value
-    //convert payload to float
-    MC_union.u = payload;
-    //collect the next segment of samples and copy into DTCM
-    if(test_DMA == TRUE)
+    if (mc_key == ome_data_key)
     {
-        MC_seg_idx++;
-        #ifdef PROFILE
-        if(MC_seg_idx>=SEGSIZE)profiler_write_entry_disable_irq_fiq
-        (PROFILER_ENTER | PROFILER_TIMER);
-        #endif
-        //assign recieve buffer
-        if(!read_switch)
+        //payload is OME output value
+        //convert payload to float
+        MC_union.u = payload;
+        //collect the next segment of samples and copy into DTCM
+        if(test_DMA == TRUE)
         {
-            dtcm_buffer_a[MC_seg_idx-1] = MC_union.f;
-            //completed filling a segment of input values
-            if(MC_seg_idx>=SEGSIZE)
+            MC_seg_idx++;
+            #ifdef PROFILE
+            if(MC_seg_idx>=SEGSIZE)profiler_write_entry_disable_irq_fiq
+            (PROFILER_ENTER | PROFILER_TIMER);
+            #endif
+            //assign recieve buffer
+            if(!read_switch)
             {
-                MC_seg_idx=0;
-                read_switch=1;
-                spin1_schedule_callback(process_handler,0,0,1);
+                dtcm_buffer_a[MC_seg_idx-1] = MC_union.f;
+                //completed filling a segment of input values
+                if(MC_seg_idx>=SEGSIZE)
+                {
+                    MC_seg_idx=0;
+                    read_switch=1;
+                    spin1_schedule_callback(process_handler,0,0,1);
+                }
+            }
+            else
+            {
+                dtcm_buffer_b[MC_seg_idx-1] = MC_union.f;
+                //completed filling a segment of input values
+                if(MC_seg_idx>=SEGSIZE)
+                {
+                    MC_seg_idx=0;
+                    read_switch=0;
+                    spin1_schedule_callback(process_handler,0,0,1);
+                }
             }
         }
-        else
+    }
+    else//must be a command
+    {
+        //extract comms command from key
+        uint command = mc_key & mask;
+
+        if(command == 1 && seg_index==0)//ready to send packet received from OME
         {
-            dtcm_buffer_b[MC_seg_idx-1] = MC_union.f;
-            //completed filling a segment of input values
-            if(MC_seg_idx>=SEGSIZE)
+            if (sync_count<num_ihcans)//waiting for acknowledgement from child IHCANs
             {
-                MC_seg_idx=0;
-                read_switch=0;
-                spin1_schedule_callback(process_handler,0,0,1);
+                //sending ready to send MC packet to connected IHCAN models
+                while (!spin1_send_mc_packet(key|1, 0, NO_PAYLOAD))
+                {
+                    spin1_delay_us(1);
+                }
+            }
+
+            else if (sync_count==num_ihcans)
+            {
+                log_info("ack");
+                //all acknowledgments have been received from the child IHCAN models
+                //send acknowledgement back to parent OME
+                while (!spin1_send_mc_packet(ome_key|2, 0, NO_PAYLOAD))
+                {
+                    spin1_delay_us(1);
+                }
+                sync_count=0;
             }
         }
+
+        else if (command == 1 && seg_index>0)//simulation finished from OME
+        {
+            spin1_schedule_callback(app_end,NULL,NULL,2);
+        }
+
+        else if (command == 2)//acknowledgement packet received from a child IHCAN
+        {
+            sync_count++;
+        }
+        else while(1){};
     }
 }
 
 void app_done ()
 {
-
     #ifdef PROFILE
 	profiler_finalise();
     #endif
@@ -589,7 +596,7 @@ void c_main()
   //process channel once data input has been read to DTCM
   spin1_callback_on (DMA_TRANSFER_DONE,transfer_handler,0);
   spin1_callback_on (MCPL_PACKET_RECEIVED,data_read,-1);
-  spin1_callback_on (MC_PACKET_RECEIVED,command_received,-1);
+  spin1_callback_on (MC_PACKET_RECEIVED,moc_spike_received,-1);
   spin1_callback_on (USER_EVENT,data_write,0);
 
   spin1_start (SYNC_WAIT);
