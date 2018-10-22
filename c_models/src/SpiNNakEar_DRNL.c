@@ -21,6 +21,7 @@
 #include <profiler.h>
 #include <profile_tags.h>
 #include <simulation.h>
+#include <debug.h>
 
 //#define PROFILE
 
