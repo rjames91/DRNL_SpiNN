@@ -20,7 +20,7 @@
 
 #define SEGSIZE 96//100
 
-#define SAMPLING_FREQUENCY 44100.f
+#define SAMPLING_FREQUENCY 44100.
 
 #define MAX_SIGNAL_S 1
 
@@ -33,7 +33,7 @@
      _a > _b ? _a : _b; })
 
 #define ABS(x) (((x)<0) ? -(x) : (x))
-#define SIGN(x) (((x)<0) ? -(1.0f) : (1.0f))
+#define SIGN(x) (((x)<0) ? -(1.0) : (1.0))
 
 typedef union
 {
