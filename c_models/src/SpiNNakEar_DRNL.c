@@ -214,8 +214,8 @@ void app_init(void)
 	cf=(REAL)drnl_cf;
 
 	//non-linear pathway
-	nlBWq=180.0;
-	nlBWp=0.14;
+	nlBWq=58.7147428141;//180.0;//
+	nlBWp=0.0342341965;//0.14;//
 	nlin_bw=nlBWp * cf + nlBWq;
 	nlin_phi=2.0 * M_PI * nlin_bw * dt;
 	nlin_theta= 2.0 * M_PI * cf * dt;
@@ -240,8 +240,8 @@ void app_init(void)
 
 	//linear pathway
 	lin_gain=200.0;
-	linBWq=235.0;
-	linBWp=0.2;
+	linBWq=76.65535867396389;//235.0;
+	linBWp=0.048905995;//0.2;
 	lin_bw=linBWp * cf + linBWq;
 	lin_phi=2.0 * M_PI * lin_bw * dt;
 	linCFp=0.62;
