@@ -93,7 +93,8 @@ enum params {
     CF,
     DELAY,
     FS,
-    OME_DATA_KEY
+    OME_DATA_KEY,
+    CONN_LUT
 };
 
 // The size of the remaining data to be sent
@@ -214,8 +215,8 @@ void app_init(void)
 	cf=(REAL)drnl_cf;
 
 	//non-linear pathway
-	nlBWq=58.7147428141;//180.0;//
-	nlBWp=0.0342341965;//0.14;//
+	nlBWq=180.0;//58.7147428141;//
+	nlBWp=0.14;//0.0342341965;//
 	nlin_bw=nlBWp * cf + nlBWq;
 	nlin_phi=2.0 * M_PI * nlin_bw * dt;
 	nlin_theta= 2.0 * M_PI * cf * dt;
@@ -240,8 +241,8 @@ void app_init(void)
 
 	//linear pathway
 	lin_gain=200.0;
-	linBWq=76.65535867396389;//235.0;
-	linBWp=0.048905995;//0.2;
+	linBWq=235.0;//76.65535867396389;//
+	linBWp=0.2;//0.048905995;//
 	lin_bw=linBWp * cf + linBWq;
 	lin_phi=2.0 * M_PI * lin_bw * dt;
 	linCFp=0.62;
@@ -310,29 +311,6 @@ void app_init(void)
     profiler_init(
         data_specification_get_region(1, data_address));
 #endif
-}
-
-void app_end(uint null_a,uint null_b)
-{
-    if( sync_count<num_ihcans)
-    {
-        //send end MC packet to child IHCANs
-        //log_info("sending final packet to IHCANs\n");
-        while (!spin1_send_mc_packet(key|1, 0, NO_PAYLOAD)) {
-            spin1_delay_us(1);
-        }
-        //wait for acknowledgment from child IHCANs
-        while(sync_count<num_ihcans)
-        {
-           spin1_delay_us(1);
-        }
-    }
-    //all expected acks received
-    //send final ack packet back to parent OME
-    while (!spin1_send_mc_packet(ome_key|2, 0, NO_PAYLOAD)) {
-        spin1_delay_us(1);
-    }
-    spin1_exit (0);
 }
 
 void data_write(uint null_a, uint null_b)
@@ -498,6 +476,31 @@ void moc_spike_received(uint mc_key, uint null)
      MOCspikeCount++;
 }
 
+void app_end(uint null_a,uint null_b)
+{
+    if( sync_count<num_ihcans)
+    {
+        //send end MC packet to child IHCANs
+        //log_info("sending final packet to IHCANs\n");
+        while (!spin1_send_mc_packet(key|1, 0, NO_PAYLOAD)) {
+            spin1_delay_us(1);
+        }
+        //wait for acknowledgment from child IHCANs
+        while(sync_count<num_ihcans)
+        {
+           spin1_delay_us(1);
+        }
+    }
+    //all expected acks received
+    //send final ack packet back to parent OME
+    io_printf(IO_BUF,"fintxack\n");
+    io_printf(IO_BUF,"spinn_exit\n");
+    while (!spin1_send_mc_packet(ome_key|2, 0, NO_PAYLOAD)) {
+        spin1_delay_us(1);
+    }
+    spin1_exit (0);
+}
+
 void data_read(uint mc_key, uint payload)
 {
     if (mc_key == ome_data_key)
@@ -547,16 +550,26 @@ void data_read(uint mc_key, uint payload)
         {
             if (sync_count<num_ihcans)//waiting for acknowledgement from child IHCANs
             {
+                io_printf(IO_BUF,"r2s\n");
                 //sending ready to send MC packet to connected IHCAN models
                 while (!spin1_send_mc_packet(key|1, 0, NO_PAYLOAD))
                 {
                     spin1_delay_us(1);
                 }
             }
+        }
+        else if (command == 1 && seg_index>0)//simulation finished from OME
+        {
+            spin1_schedule_callback(app_end,NULL,NULL,2);
+        }
 
-            else if (sync_count==num_ihcans)
+        else if (command == 2)//acknowledgement packet received from a child IHCAN
+        {
+            io_printf(IO_BUF,"rxack\n");
+            sync_count++;
+            if (sync_count==num_ihcans && seg_index==0)
             {
-                log_info("ack");
+                io_printf(IO_BUF,"txack from %d\n",ome_key);
                 //all acknowledgments have been received from the child IHCAN models
                 //send acknowledgement back to parent OME
                 while (!spin1_send_mc_packet(ome_key|2, 0, NO_PAYLOAD))
@@ -565,16 +578,6 @@ void data_read(uint mc_key, uint payload)
                 }
                 sync_count=0;
             }
-        }
-
-        else if (command == 1 && seg_index>0)//simulation finished from OME
-        {
-            spin1_schedule_callback(app_end,NULL,NULL,2);
-        }
-
-        else if (command == 2)//acknowledgement packet received from a child IHCAN
-        {
-            sync_count++;
         }
         else while(1){};
     }
