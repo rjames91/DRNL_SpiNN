@@ -342,7 +342,7 @@ uint process_chan(REAL *out_buffer,float *in_buffer)
 	uint i;		
 	REAL linout1,linout2,nonlinout1a,nonlinout2a,nonlinout1b,nonlinout2b,abs_x,compressedNonlin;
 	REAL filter_1;
-
+	//TODO: change MOC method to a synapse model
 	for(i=0;i<SEGSIZE;i++)
 	{
 		//Linear Path
@@ -473,6 +473,7 @@ void transfer_handler(uint tid, uint ttag)
 
 void moc_spike_received(uint mc_key, uint null)
 {
+     io_printf(IO_BUF,"MOC spike!\n");
      MOCspikeCount++;
 }
 
