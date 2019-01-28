@@ -474,6 +474,7 @@ void transfer_handler(uint tid, uint ttag)
 void moc_spike_received(uint mc_key, uint null)
 {
      io_printf(IO_BUF,"MOC spike!\n");
+     //TODO: implement conn_lut here to drop spikes that are from unconnected neurons
      MOCspikeCount++;
 }
 
