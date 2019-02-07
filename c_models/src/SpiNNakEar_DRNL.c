@@ -41,12 +41,16 @@ uint index_y;
 uint MC_seg_idx;
 uint_float_union MC_union;
 uint ack_rx=0;
+uint moc_spike_count=0;
+uint ms_counter=0;
+uint moc_buffer_index = 0;
 
 REAL cf,nlin_b0,nlin_b1,nlin_b2,nlin_a1,nlin_a2,
        lin_b0,lin_b1,lin_b2,lin_a1,lin_a2,lin_gain,
        a,ctBM,dispThresh,recip_ctBM,MOC,MOCnow1,
        MOCnow2,MOCnow3,MOCdec1,MOCdec2,MOCdec3,
        MOCfactor1,MOCfactor2,MOCfactor3,MOCspikeCount;
+
 
 accum c;
 
@@ -75,6 +79,9 @@ REAL *dtcm_buffer_y;
 
 REAL *sdramout_buffer;
 
+//MOC count buffer
+uint *moc_count_buffer;
+
 //data spec regions
 typedef enum regions {
     SYSTEM,
@@ -94,7 +101,7 @@ enum params {
     DELAY,
     FS,
     OME_DATA_KEY,
-    CONN_LUT
+    MOC_CONN_LUT
 };
 
 // The size of the remaining data to be sent
@@ -111,6 +118,14 @@ uint drnl_cf;
 uint delay;
 uint sampling_frequency;
 uint ome_data_key;
+uint n_mocs;
+uint n_conn_lut_words;
+uint *moc_conn_lut;
+static key_mask_table_entry *key_mask_table;
+static last_neuron_info_t last_neuron_info;
+
+uint *moc_conn_lut_address;
+uint n_seg_per_ms;
 
 //application initialisation
 void app_init(void)
@@ -156,10 +171,29 @@ void app_init(void)
     sampling_frequency = params[FS];
     Fs= (REAL)sampling_frequency;
 	dt=(1.0/Fs);
+	//calculate how many segments approx 1ms is
+	n_seg_per_ms = (float)MOC_DELAY_MS/(SEGSIZE*(1000.*dt));
+    log_info("n_seg_per_ms=%d\n",n_seg_per_ms);
 
 	ome_data_key = params[OME_DATA_KEY];
 
+	moc_conn_lut_address = &params[MOC_CONN_LUT];
+	n_mocs = moc_conn_lut_address[0];
+    n_conn_lut_words = moc_conn_lut_address[1];
+
     // Allocate buffers
+    uint n_key_mask_table_bytes = n_mocs * sizeof(key_mask_table_entry);
+    key_mask_table = (key_mask_table_entry *)spin1_malloc(n_key_mask_table_bytes);
+
+    uint n_conn_lut_bytes = n_conn_lut_words * 4;
+    moc_conn_lut = (uint *)spin1_malloc(n_conn_lut_bytes);
+
+    spin1_memcpy(moc_conn_lut, &(moc_conn_lut_address[2]),
+        n_conn_lut_bytes);
+
+    spin1_memcpy(key_mask_table, &(moc_conn_lut_address[2+n_conn_lut_words]),
+        n_key_mask_table_bytes);
+
 	//output results buffer (shared with child IHCANs)
 	//hack for smaller SDRAM intermediate circular buffers
 	data_size=cbuff_numseg*SEGSIZE;
@@ -176,8 +210,10 @@ void app_init(void)
 	dtcm_buffer_x = (REAL *) sark_alloc (SEGSIZE, sizeof(REAL));
 	dtcm_buffer_y = (REAL *) sark_alloc (SEGSIZE, sizeof(REAL));
 
+	moc_count_buffer = (uint *) sark_alloc (MOC_DELAY_MS,sizeof(uint));
+
 	if (dtcm_buffer_a == NULL ||dtcm_buffer_b == NULL ||dtcm_buffer_x == NULL ||dtcm_buffer_y == NULL 
-			||  sdramout_buffer == NULL )
+			||  sdramout_buffer == NULL || moc_count_buffer == NULL)
 	{
 		test_DMA = FALSE;
 		//io_printf (IO_BUF, "[core %d] error - cannot allocate buffer\n", coreID);
@@ -199,6 +235,10 @@ void app_init(void)
 		for (uint i=0;i<data_size;i++)
 		{
 			sdramout_buffer[i]  = 0;
+		}
+		for (uint i=0;i<MOC_DELAY_MS;i++)
+		{
+            moc_count_buffer[i] = 0;
 		}
         MC_seg_idx=0;
 	}
@@ -313,6 +353,43 @@ void app_init(void)
 #endif
 }
 
+bool check_incoming_spike_id(uint spike){
+    //find corresponding key_mask_index entry
+    uint32_t imin = 0;
+    uint32_t imax = n_mocs;
+
+    while (imin < imax) {
+        int imid = (imax + imin) >> 1;
+        key_mask_table_entry entry = key_mask_table[imid];
+        if ((spike & entry.mask) == entry.key){
+            uint neuron_id = spike & ~entry.mask;
+            last_neuron_info.e_index = entry.conn_index;
+            last_neuron_info.w_index = neuron_id/32;
+            last_neuron_info.id_shift = 31-(neuron_id%32);
+	        return(moc_conn_lut[last_neuron_info.e_index+last_neuron_info.w_index] & (uint32_t)1 << last_neuron_info.id_shift);
+        }
+        else{
+            return false;
+        }
+    }
+
+}
+
+void update_moc_buffer(uint sc){
+    moc_count_buffer[moc_buffer_index]=sc;
+    moc_buffer_index++;
+    if (moc_buffer_index >= MOC_DELAY_MS) moc_buffer_index = 0;
+}
+
+uint get_current_moc_spike_count(){
+    uint spike_count = 0;
+    for (uint i=0;i<MOC_DELAY_MS;i++)
+    {
+        spike_count+=moc_count_buffer[i];
+    }
+return spike_count;
+}
+
 void data_write(uint null_a, uint null_b)
 {
 	REAL *dtcm_buffer_out;
@@ -342,6 +419,11 @@ uint process_chan(REAL *out_buffer,float *in_buffer)
 	uint i;		
 	REAL linout1,linout2,nonlinout1a,nonlinout2a,nonlinout1b,nonlinout2b,abs_x,compressedNonlin;
 	REAL filter_1;
+
+	if(ms_counter>=n_seg_per_ms){
+	    update_moc_buffer(moc_spike_count);
+	    moc_spike_count = 0;
+	}
 	//TODO: change MOC method to a synapse model
 	for(i=0;i<SEGSIZE;i++)
 	{
@@ -375,6 +457,7 @@ uint process_chan(REAL *out_buffer,float *in_buffer)
 		nlin_y2a[1]= nonlinout2a;
 
 		//MOC efferent effects
+		MOCspikeCount = (REAL)get_current_moc_spike_count();
         MOCnow1= MOCnow1* MOCdec1+ MOCspikeCount* MOCfactor1;
         MOCnow2= MOCnow2* MOCdec2+ MOCspikeCount* MOCfactor2;
         MOCnow3= MOCnow3* MOCdec3+ MOCspikeCount* MOCfactor3;
@@ -411,7 +494,7 @@ uint process_chan(REAL *out_buffer,float *in_buffer)
 		//save to buffer
 		out_buffer[i]=linout2 + nonlinout2b;
 	}
-	MOCspikeCount = 0;
+//	MOCspikeCount = 0;
 	return segment_offset;
 }
 
@@ -473,9 +556,10 @@ void transfer_handler(uint tid, uint ttag)
 
 void moc_spike_received(uint mc_key, uint null)
 {
-     io_printf(IO_BUF,"MOC spike!\n");
-     //TODO: implement conn_lut here to drop spikes that are from unconnected neurons
-     MOCspikeCount++;
+    if (check_incoming_spike_id(mc_key)){
+//        io_printf(IO_BUF,"MOC spike from %u\n",mc_key);
+        moc_spike_count++;
+    }
 }
 
 void app_end(uint null_a,uint null_b)
@@ -495,7 +579,7 @@ void app_end(uint null_a,uint null_b)
     }
     //all expected acks received
     //send final ack packet back to parent OME
-    io_printf(IO_BUF,"fintxack\n");
+//    io_printf(IO_BUF,"fintxack\n");
     io_printf(IO_BUF,"spinn_exit\n");
     while (!spin1_send_mc_packet(ome_key|2, 0, NO_PAYLOAD)) {
         spin1_delay_us(1);
@@ -552,7 +636,7 @@ void data_read(uint mc_key, uint payload)
         {
             if (sync_count<num_ihcans)//waiting for acknowledgement from child IHCANs
             {
-                io_printf(IO_BUF,"r2s\n");
+//                io_printf(IO_BUF,"r2s\n");
                 //sending ready to send MC packet to connected IHCAN models
                 while (!spin1_send_mc_packet(key|1, 0, NO_PAYLOAD))
                 {
@@ -567,11 +651,11 @@ void data_read(uint mc_key, uint payload)
 
         else if (command == 2)//acknowledgement packet received from a child IHCAN
         {
-            io_printf(IO_BUF,"rxack\n");
+//            io_printf(IO_BUF,"rxack\n");
             sync_count++;
             if (sync_count==num_ihcans && seg_index==0)
             {
-                io_printf(IO_BUF,"txack from %d\n",ome_key);
+//                io_printf(IO_BUF,"txack from %d\n",ome_key);
                 //all acknowledgments have been received from the child IHCAN models
                 //send acknowledgement back to parent OME
                 while (!spin1_send_mc_packet(ome_key|2, 0, NO_PAYLOAD))

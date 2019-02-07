@@ -18,9 +18,10 @@
 //#define SEED_SEL_SIZE (((MAX_CHIPX << 8) | MAX_CHIPY) << 8) | (MAX_COREID << 3)   
 #define SEED_SEL_SIZE 1024
 
-#define SEGSIZE 96//100
+#define SEGSIZE 8//16//96//100
 
 #define SAMPLING_FREQUENCY 44100.
+#define MOC_DELAY_MS 50
 
 #define MAX_SIGNAL_S 1
 
@@ -41,5 +42,16 @@ typedef union
 	float f;
 } uint_float_union;
 
+typedef struct key_mask_table {
+    uint32_t key;
+    uint32_t mask;
+    uint32_t conn_index;
+} key_mask_table_entry;
+
+typedef struct{
+    uint32_t e_index;
+    uint32_t w_index;
+    uint32_t id_shift;
+}last_neuron_info_t;
 
 #endif /* IHC_AN_H_ */
