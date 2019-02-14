@@ -179,6 +179,7 @@ void app_init(void)
 
 	moc_conn_lut_address = &params[MOC_CONN_LUT];
 	n_mocs = moc_conn_lut_address[0];
+	io_printf(IO_BUF,"n_mocs=%d\n",n_mocs);
     n_conn_lut_words = moc_conn_lut_address[1];
 
     // Allocate buffers
@@ -368,6 +369,15 @@ bool check_incoming_spike_id(uint spike){
             last_neuron_info.id_shift = 31-(neuron_id%32);
 	        return(moc_conn_lut[last_neuron_info.e_index+last_neuron_info.w_index] & (uint32_t)1 << last_neuron_info.id_shift);
         }
+        else if (entry.key < spike) {
+
+            // Entry must be in upper part of the table
+            imin = imid + 1;
+        } else {
+
+            // Entry must be in lower part of the table
+            imax = imid;
+        }
     }
     return false;
 
@@ -552,12 +562,16 @@ void transfer_handler(uint tid, uint ttag)
 	}
 }
 
-void moc_spike_received(uint mc_key, uint null)
-{
-    if (check_incoming_spike_id(mc_key)){
+void spike_check(uint32_t rx_key,uint null){
+    if (check_incoming_spike_id(rx_key)){
 //        io_printf(IO_BUF,"MOC spike from %u\n",mc_key);
         moc_spike_count++;
     }
+}
+
+void moc_spike_received(uint mc_key, uint null)
+{
+    spin1_schedule_callback(spike_check,mc_key,NULL,1);
 }
 
 void app_end(uint null_a,uint null_b)
