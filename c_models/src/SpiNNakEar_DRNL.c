@@ -368,10 +368,8 @@ bool check_incoming_spike_id(uint spike){
             last_neuron_info.id_shift = 31-(neuron_id%32);
 	        return(moc_conn_lut[last_neuron_info.e_index+last_neuron_info.w_index] & (uint32_t)1 << last_neuron_info.id_shift);
         }
-        else{
-            return false;
-        }
     }
+    return false;
 
 }
 
