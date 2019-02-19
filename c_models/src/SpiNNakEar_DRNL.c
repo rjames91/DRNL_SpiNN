@@ -579,10 +579,11 @@ void app_end(uint null_a,uint null_b)
     if( sync_count<num_ihcans)
     {
         //send end MC packet to child IHCANs
-        //log_info("sending final packet to IHCANs\n");
+        log_info("sending final packet to IHCANs\n");
         while (!spin1_send_mc_packet(key|1, 0, NO_PAYLOAD)) {
             spin1_delay_us(1);
         }
+
         //wait for acknowledgment from child IHCANs
         while(sync_count<num_ihcans)
         {
@@ -648,7 +649,7 @@ void data_read(uint mc_key, uint payload)
         {
             if (sync_count<num_ihcans)//waiting for acknowledgement from child IHCANs
             {
-//                io_printf(IO_BUF,"r2s\n");
+                io_printf(IO_BUF,"r2s\n");
                 //sending ready to send MC packet to connected IHCAN models
                 while (!spin1_send_mc_packet(key|1, 0, NO_PAYLOAD))
                 {
@@ -663,7 +664,7 @@ void data_read(uint mc_key, uint payload)
 
         else if (command == 2)//acknowledgement packet received from a child IHCAN
         {
-//            io_printf(IO_BUF,"rxack\n");
+            io_printf(IO_BUF,"rxack\n");
             sync_count++;
             if (sync_count==num_ihcans && seg_index==0)
             {
