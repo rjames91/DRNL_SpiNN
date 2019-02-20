@@ -176,6 +176,8 @@ void app_init(void)
     log_info("n_seg_per_ms=%d\n",n_seg_per_ms);
 
 	ome_data_key = params[OME_DATA_KEY];
+    io_printf(IO_BUF,"ome_data_key=%d\n",ome_data_key);
+
 
 	moc_conn_lut_address = &params[MOC_CONN_LUT];
 	n_mocs = moc_conn_lut_address[0];
@@ -647,9 +649,9 @@ void data_read(uint mc_key, uint payload)
 
         if(command == 1 && seg_index==0)//ready to send packet received from OME
         {
+            log_info("r2s from %d",(mc_key & ~mask));
             if (sync_count<num_ihcans)//waiting for acknowledgement from child IHCANs
             {
-                io_printf(IO_BUF,"r2s\n");
                 //sending ready to send MC packet to connected IHCAN models
                 while (!spin1_send_mc_packet(key|1, 0, NO_PAYLOAD))
                 {
@@ -671,6 +673,7 @@ void data_read(uint mc_key, uint payload)
 //                io_printf(IO_BUF,"txack from %d\n",ome_key);
                 //all acknowledgments have been received from the child IHCAN models
                 //send acknowledgement back to parent OME
+
                 while (!spin1_send_mc_packet(ome_key|2, 0, NO_PAYLOAD))
                 {
                     spin1_delay_us(1);
