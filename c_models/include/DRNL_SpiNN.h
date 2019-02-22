@@ -54,4 +54,28 @@ typedef struct{
     uint32_t id_shift;
 }last_neuron_info_t;
 
+typedef struct {
+   uint32_t DATA_SIZE;
+   uint32_t OMECOREID;
+   uint32_t COREID;
+   uint32_t OMEAPPID;
+   uint32_t OME_KEY;
+   uint32_t KEY;
+   uint32_t NUM_IHCAN;
+   uint32_t CF;
+   uint32_t DELAY;
+   uint32_t FS;
+   uint32_t OME_DATA_KEY;
+   uint32_t  IS_RECORDING;
+   REAL L_A1;
+   REAL L_A2;
+   REAL L_B0;
+   REAL L_B1;
+   REAL NL_A1;
+   REAL NL_A2;
+   REAL NL_B0;
+   REAL NL_B1;
+   uint32_t MOC_CONN_LUT;
+}parameters_struct;
+
 #endif /* IHC_AN_H_ */
