@@ -408,18 +408,18 @@ bool app_init(void)
 	nlin_y2b[0]=0.0;
 	nlin_y2b[1]=0.0;
 
-	rateToAttentuationFactor = 60e3;//20e4;
+	rateToAttentuationFactor = 60e3;//20e6;//20e4;
 
 	MOCnow1=0.0;
 	MOCnow2=0.0;
 	MOCnow3=0.0;
 
-	MOCtau[0] = 0.055;
-	MOCtau[1] = 0.4;
-    MOCtau[2] = 1;
+	MOCtau[0] = 0.05;//0.055;
+	MOCtau[1] = 0.3;//0.4;
+    MOCtau[2] = 100;//1;
 
-    MOCtauweights[0] = 0.9;
-    MOCtauweights[1] = 0.1;
+    MOCtauweights[0] = 0.7;//0.9;
+    MOCtauweights[1] = 0.3;//0.1;
     MOCtauweights[2] = 0;
 
     MOCdec1 = exp(- dt/MOCtau[0]);
@@ -471,7 +471,7 @@ bool check_incoming_spike_id(uint spike){
 void update_moc_buffer(uint sc){
     moc_count_buffer[moc_buffer_index]=sc;
     moc_buffer_index++;
-    log_info("mbi%d",moc_buffer_index);
+//    log_info("mbi%d",moc_buffer_index);
     if (moc_buffer_index >= MOC_DELAY_MS) moc_buffer_index = 0;
 }
 
@@ -481,6 +481,7 @@ uint get_current_moc_spike_count(){
     {
         spike_count+=moc_count_buffer[i];
     }
+//    if(spike_count>0)log_info("sc:%d",spike_count);
     return spike_count;
 }
 
@@ -669,7 +670,7 @@ void transfer_handler(uint tid, uint ttag)
 
 void spike_check(uint32_t rx_key,uint null){
     if (check_incoming_spike_id(rx_key)){
-        io_printf(IO_BUF,"MOC spike from %u\n",rx_key);
+//        io_printf(IO_BUF,"MOC spike from %u\n",rx_key);
         moc_spike_count++;
     }
 }
@@ -701,10 +702,15 @@ void app_end(uint null_a,uint null_b)
     while (!spin1_send_mc_packet(ome_key|2, 0, NO_PAYLOAD)) {
         spin1_delay_us(1);
     }
-    if(is_recording)recording_finalise();
-    io_printf(IO_BUF,"spinn_exit\n");
-//    spin1_exit (0);
-    simulation_ready_to_read();
+    if(is_recording){
+        recording_finalise();
+        io_printf(IO_BUF,"spinn_exit\n");
+        simulation_ready_to_read();
+    }
+    else{
+        io_printf(IO_BUF,"spinn_exit\n");
+        spin1_exit (0);
+    }
 }
 
 void data_read(uint mc_key, uint payload)
@@ -805,7 +811,7 @@ void c_main()
   if(app_init()){
       //setup callbacks
       //process channel once data input has been read to DTCM
-//      spin1_callback_on (DMA_TRANSFER_DONE,transfer_handler,0);
+      if(!is_recording)spin1_callback_on (DMA_TRANSFER_DONE,transfer_handler,0);
       spin1_callback_on (MCPL_PACKET_RECEIVED,data_read,-1);
       spin1_callback_on (MC_PACKET_RECEIVED,moc_spike_received,-1);
       spin1_callback_on (USER_EVENT,data_write,0);

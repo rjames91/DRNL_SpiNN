@@ -21,7 +21,7 @@
 #define SEGSIZE 8//16//96//100
 
 #define SAMPLING_FREQUENCY 44100.
-#define MOC_DELAY_MS 50
+#define MOC_DELAY_MS 3
 
 #define MAX_SIGNAL_S 1
 
