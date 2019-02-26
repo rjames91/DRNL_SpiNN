@@ -22,6 +22,7 @@
 
 #define SAMPLING_FREQUENCY 44100.
 #define MOC_DELAY_MS 3
+#define MOC_DELAY_ARRAY_LEN 50
 
 #define MAX_SIGNAL_S 1
 

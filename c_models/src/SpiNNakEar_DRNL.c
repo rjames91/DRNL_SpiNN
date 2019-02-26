@@ -275,7 +275,7 @@ bool app_init(void)
     dtcm_buffer_moc_x = (REAL *) sark_alloc (SEGSIZE, sizeof(REAL));
 	dtcm_buffer_moc_y = (REAL *) sark_alloc (SEGSIZE, sizeof(REAL));
 
-	moc_count_buffer = (uint *) sark_alloc (MOC_DELAY_MS,sizeof(uint));
+	moc_count_buffer = (uint *) sark_alloc (MOC_DELAY_ARRAY_LEN,sizeof(uint));
 
 	if (dtcm_buffer_a == NULL ||dtcm_buffer_b == NULL ||dtcm_buffer_x == NULL ||dtcm_buffer_y == NULL 
 		||dtcm_buffer_moc_x == NULL ||dtcm_buffer_moc_y == NULL 	||  sdramout_buffer == NULL || moc_count_buffer == NULL)
@@ -304,7 +304,7 @@ bool app_init(void)
 		{
 			sdramout_buffer[i]  = 0;
 		}
-		for (uint i=0;i<MOC_DELAY_MS;i++)
+		for (uint i=0;i<MOC_DELAY_ARRAY_LEN;i++)
 		{
             moc_count_buffer[i] = 0;
 		}
@@ -472,17 +472,28 @@ void update_moc_buffer(uint sc){
     moc_count_buffer[moc_buffer_index]=sc;
     moc_buffer_index++;
 //    log_info("mbi%d",moc_buffer_index);
-    if (moc_buffer_index >= MOC_DELAY_MS) moc_buffer_index = 0;
+    if (moc_buffer_index >= MOC_DELAY_ARRAY_LEN) moc_buffer_index = 0;
 }
 
 uint get_current_moc_spike_count(){
-    uint spike_count = 0;
-    for (uint i=0;i<MOC_DELAY_MS;i++)
+//    uint spike_count = 0;
+    int index_diff = moc_buffer_index - MOC_DELAY_MS;
+    uint delayed_index;
+    if (index_diff<0){
+        //wrap around
+        delayed_index = (MOC_DELAY_ARRAY_LEN-1) + index_diff;
+    }
+    else{
+        delayed_index = index_diff;
+    }
+/*    for (uint i=0;i<MOC_DELAY_MS;i++)
     {
         spike_count+=moc_count_buffer[i];
-    }
+    }*/
+
 //    if(spike_count>0)log_info("sc:%d",spike_count);
-    return spike_count;
+//    return spike_count;
+    return moc_count_buffer[delayed_index];
 }
 
 recording_complete_callback_t record_finished(void)
