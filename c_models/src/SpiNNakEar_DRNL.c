@@ -693,7 +693,7 @@ void moc_spike_received(uint mc_key, uint null)
 
 void app_end(uint null_a,uint null_b)
 {
-    if( sync_count<num_ihcans)
+    /*if( sync_count<num_ihcans)
     {
         //send end MC packet to child IHCANs
         log_info("sending final packet to IHCANs\n");
@@ -712,16 +712,17 @@ void app_end(uint null_a,uint null_b)
 //    io_printf(IO_BUF,"fintxack\n");
     while (!spin1_send_mc_packet(ome_key|2, 0, NO_PAYLOAD)) {
         spin1_delay_us(1);
+    }*/
+    //send end MC packet to child IHCANs
+    log_info("sending final packet to IHCANs\n");
+    while (!spin1_send_mc_packet(key|1, 0, NO_PAYLOAD)) {
+        spin1_delay_us(1);
     }
     if(is_recording){
         recording_finalise();
-        io_printf(IO_BUF,"spinn_exit\n");
-        simulation_ready_to_read();
     }
-    else{
-        io_printf(IO_BUF,"spinn_exit\n");
-        spin1_exit (0);
-    }
+    io_printf(IO_BUF,"spinn_exit\n");
+    simulation_ready_to_read();
 }
 
 void data_read(uint mc_key, uint payload)
@@ -769,7 +770,7 @@ void data_read(uint mc_key, uint payload)
         //extract comms command from key
         uint command = mc_key & mask;
 
-        if(command == 1 && seg_index==0)//ready to send packet received from OME
+/*        if(command == 1 && seg_index==0)//ready to send packet received from OME
         {
             log_info("r2s from %d",(mc_key & ~mask));
             if (sync_count<num_ihcans)//waiting for acknowledgement from child IHCANs
@@ -780,13 +781,13 @@ void data_read(uint mc_key, uint payload)
                     spin1_delay_us(1);
                 }
             }
-        }
-        else if (command == 1 && seg_index>0)//simulation finished from OME
+        }*/
+        if (command == 1 && seg_index>0)//simulation finished from OME
         {
             spin1_schedule_callback(app_end,NULL,NULL,2);
         }
 
-        else if (command == 2)//acknowledgement packet received from a child IHCAN
+        /*else if (command == 2)//acknowledgement packet received from a child IHCAN
         {
             io_printf(IO_BUF,"rxack\n");
             sync_count++;
@@ -802,7 +803,7 @@ void data_read(uint mc_key, uint payload)
                 }
                 sync_count=0;
             }
-        }
+        }*/
         else while(1){};
     }
 }
