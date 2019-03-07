@@ -44,6 +44,7 @@ uint ack_rx=0;
 uint moc_spike_count=0;
 uint ms_counter=0;
 uint moc_buffer_index = 0;
+bool app_complete = false;
 
 REAL cf,nlin_b0,nlin_b1,nlin_b2,nlin_a1,nlin_a2,
        lin_b0,lin_b1,lin_b2,lin_a1,lin_a2,lin_gain,
@@ -713,16 +714,19 @@ void app_end(uint null_a,uint null_b)
     while (!spin1_send_mc_packet(ome_key|2, 0, NO_PAYLOAD)) {
         spin1_delay_us(1);
     }*/
-    //send end MC packet to child IHCANs
-    log_info("sending final packet to IHCANs\n");
-    while (!spin1_send_mc_packet(key|1, 0, NO_PAYLOAD)) {
-        spin1_delay_us(1);
+    if (!app_complete){
+        //send end MC packet to child IHCANs
+        log_info("sending final packet to IHCANs\n");
+        while (!spin1_send_mc_packet(key|1, 0, NO_PAYLOAD)) {
+            spin1_delay_us(1);
+        }
+        if(is_recording){
+            recording_finalise();
+        }
+        io_printf(IO_BUF,"spinn_exit\n");
+        app_complete=true;
+        simulation_ready_to_read();
     }
-    if(is_recording){
-        recording_finalise();
-    }
-    io_printf(IO_BUF,"spinn_exit\n");
-    simulation_ready_to_read();
 }
 
 void data_read(uint mc_key, uint payload)
