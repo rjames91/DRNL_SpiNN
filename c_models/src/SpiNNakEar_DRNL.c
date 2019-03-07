@@ -150,6 +150,8 @@ static last_neuron_info_t last_neuron_info;
 uint *moc_conn_lut_address;
 uint n_seg_per_ms;
 
+uint32_t TOTAL_TICKS;
+
 //! \brief Initialises the recording parts of the model
 //! \return True if recording initialisation is successful, false otherwise
 static bool initialise_recording(){
@@ -186,7 +188,9 @@ bool app_init(void)
     spin1_memcpy(&parameters, (parameters_struct*)data_specification_get_region(PARAMS, data_address), sizeof(parameters_struct));
 
 	// Get the size of the data in words
-    data_size = params[DATA_SIZE];//not used TODO:remove
+    data_size = params[DATA_SIZE];
+    TOTAL_TICKS= data_size/SEGSIZE;
+    log_info("TOTAL_TICKS=%d",TOTAL_TICKS);
 
     //obtain ome core ID from the host placement perspective
     ome_coreID = params[OMECOREID];
@@ -590,6 +594,7 @@ uint process_chan(REAL *out_buffer,float *in_buffer,REAL *moc_out_buffer)
 
 		//MOC efferent effects
 		MOCspikeCount = (REAL)get_current_moc_spike_count();
+		if (MOCspikeCount<0.)log_info("-ve moc_n%d",MOCspikeCount);
 //		if (MOCspikeCount>0)log_info("moc_n%d",MOCspikeCount);
         MOCnow1= MOCnow1* MOCdec1+ MOCspikeCount* MOCfactor1;
         MOCnow2= MOCnow2* MOCdec2+ MOCspikeCount* MOCfactor2;
@@ -597,7 +602,10 @@ uint process_chan(REAL *out_buffer,float *in_buffer,REAL *moc_out_buffer)
         // MOC= 1 when all MOCnow are zero
         // 0 < MOC < 1
         MOC= 1./(1+MOCnow1+MOCnow2+MOCnow3);
+        if (MOC>1.) log_info("out of bounds moc_n%d",MOC);
+        if (MOC<0.) log_info("out of bounds moc_n%d",MOC);
 		nonlinout2a*=MOC;
+
 		//stage 2
 		abs_x= ABS(nonlinout2a);
 
@@ -633,6 +641,43 @@ uint process_chan(REAL *out_buffer,float *in_buffer,REAL *moc_out_buffer)
 	return segment_offset;
 }
 
+void app_end(uint null_a,uint null_b)
+{
+    /*if( sync_count<num_ihcans)
+    {
+        //send end MC packet to child IHCANs
+        log_info("sending final packet to IHCANs\n");
+        while (!spin1_send_mc_packet(key|1, 0, NO_PAYLOAD)) {
+            spin1_delay_us(1);
+        }
+
+        //wait for acknowledgment from child IHCANs
+        while(sync_count<num_ihcans)
+        {
+           spin1_delay_us(1);
+        }
+    }
+    //all expected acks received
+    //send final ack packet back to parent OME
+//    io_printf(IO_BUF,"fintxack\n");
+    while (!spin1_send_mc_packet(ome_key|2, 0, NO_PAYLOAD)) {
+        spin1_delay_us(1);
+    }*/
+    if (!app_complete){
+        //send end MC packet to child IHCANs
+        log_info("sending final packet to IHCANs\n");
+//        while (!spin1_send_mc_packet(key|1, 0, NO_PAYLOAD)) {
+//            spin1_delay_us(1);
+//        }
+        if(is_recording){
+            recording_finalise();
+        }
+        io_printf(IO_BUF,"spinn_exit\n");
+        app_complete=true;
+        simulation_ready_to_read();
+    }
+}
+
 void process_handler(uint null_a,uint null_b)
 {
 		seg_index++;
@@ -654,7 +699,11 @@ void process_handler(uint null_a,uint null_b)
 		{
 			index_y=process_chan(dtcm_buffer_y,dtcm_buffer_a,dtcm_buffer_moc_y);
 		}
-    	spin1_trigger_user_event(NULL,NULL);
+        spin1_trigger_user_event(NULL,NULL);
+
+
+//        log_info("si %d",seg_index);
+    	if (seg_index>=TOTAL_TICKS)spin1_schedule_callback(app_end,NULL,NULL,2);
 }
 
 void transfer_handler(uint tid, uint ttag)
@@ -692,42 +741,6 @@ void moc_spike_received(uint mc_key, uint null)
     spin1_schedule_callback(spike_check,mc_key,NULL,1);
 }
 
-void app_end(uint null_a,uint null_b)
-{
-    /*if( sync_count<num_ihcans)
-    {
-        //send end MC packet to child IHCANs
-        log_info("sending final packet to IHCANs\n");
-        while (!spin1_send_mc_packet(key|1, 0, NO_PAYLOAD)) {
-            spin1_delay_us(1);
-        }
-
-        //wait for acknowledgment from child IHCANs
-        while(sync_count<num_ihcans)
-        {
-           spin1_delay_us(1);
-        }
-    }
-    //all expected acks received
-    //send final ack packet back to parent OME
-//    io_printf(IO_BUF,"fintxack\n");
-    while (!spin1_send_mc_packet(ome_key|2, 0, NO_PAYLOAD)) {
-        spin1_delay_us(1);
-    }*/
-    if (!app_complete){
-        //send end MC packet to child IHCANs
-        log_info("sending final packet to IHCANs\n");
-        while (!spin1_send_mc_packet(key|1, 0, NO_PAYLOAD)) {
-            spin1_delay_us(1);
-        }
-        if(is_recording){
-            recording_finalise();
-        }
-        io_printf(IO_BUF,"spinn_exit\n");
-        app_complete=true;
-        simulation_ready_to_read();
-    }
-}
 
 void data_read(uint mc_key, uint payload)
 {
@@ -769,12 +782,12 @@ void data_read(uint mc_key, uint payload)
             }
         }
     }
-    else//must be a command
+/*    else//must be a command
     {
         //extract comms command from key
         uint command = mc_key & mask;
 
-/*        if(command == 1 && seg_index==0)//ready to send packet received from OME
+*//*        if(command == 1 && seg_index==0)//ready to send packet received from OME
         {
             log_info("r2s from %d",(mc_key & ~mask));
             if (sync_count<num_ihcans)//waiting for acknowledgement from child IHCANs
@@ -785,13 +798,13 @@ void data_read(uint mc_key, uint payload)
                     spin1_delay_us(1);
                 }
             }
-        }*/
+        }*//*
         if (command == 1 && seg_index>0)//simulation finished from OME
         {
             spin1_schedule_callback(app_end,NULL,NULL,2);
         }
 
-        /*else if (command == 2)//acknowledgement packet received from a child IHCAN
+        *//*else if (command == 2)//acknowledgement packet received from a child IHCAN
         {
             io_printf(IO_BUF,"rxack\n");
             sync_count++;
@@ -807,9 +820,9 @@ void data_read(uint mc_key, uint payload)
                 }
                 sync_count=0;
             }
-        }*/
+        }*//*
         else while(1){};
-    }
+    }*/
 }
 
 void app_done ()
