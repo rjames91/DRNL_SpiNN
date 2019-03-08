@@ -56,6 +56,7 @@ typedef struct{
 }last_neuron_info_t;
 
 typedef struct {
+   //uint32_t N_TICKS;
    uint32_t DATA_SIZE;
    uint32_t OMECOREID;
    uint32_t COREID;
