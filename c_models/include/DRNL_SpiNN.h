@@ -19,6 +19,7 @@
 #define SEED_SEL_SIZE 1024
 
 #define SEGSIZE 8//16//96//100
+#define MOC_BUFFER_SIZE 10//min sim 10ms 1kHz MOC FS
 
 #define SAMPLING_FREQUENCY 44100.
 #define MOC_DELAY_MS 3

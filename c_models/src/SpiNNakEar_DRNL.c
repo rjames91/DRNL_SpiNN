@@ -44,6 +44,11 @@ uint ack_rx=0;
 uint moc_spike_count=0;
 uint ms_counter=0;
 uint moc_buffer_index = 0;
+uint moc_i=0;
+uint moc_write_switch = 0;
+uint moc_resample_factor;
+uint moc_sample_count = 0;
+uint moc_seg_index = 0;
 bool app_complete = false;
 
 REAL cf,nlin_b0,nlin_b1,nlin_b2,nlin_a1,nlin_a2,
@@ -145,6 +150,7 @@ uint *moc_conn_lut;
 uint is_recording;
 uint32_t recording_flags;
 uint32_t seg_output_n_bytes;
+uint32_t moc_seg_output_n_bytes;
 static key_mask_table_entry *key_mask_table;
 static last_neuron_info_t last_neuron_info;
 
@@ -232,10 +238,10 @@ bool app_init(uint32_t *timer_period)
 	//calculate how many segments approx 1ms is
 	n_seg_per_ms = 1./(SEGSIZE*(1000.*dt));
     log_info("n_seg_per_ms=%d\n",n_seg_per_ms);
-
+    moc_resample_factor = (Fs/1000.);
+    log_info("moc resample factor =%d\n",moc_resample_factor);
 	ome_data_key = params[OME_DATA_KEY];
     io_printf(IO_BUF,"ome_data_key=%d\n",ome_data_key);
-
 
 	moc_conn_lut_address = &params[MOC_CONN_LUT];
 	n_mocs = moc_conn_lut_address[0];
@@ -281,8 +287,8 @@ bool app_init(uint32_t *timer_period)
 	//DTCM output buffers
 	dtcm_buffer_x = (REAL *) sark_alloc (SEGSIZE, sizeof(REAL));
 	dtcm_buffer_y = (REAL *) sark_alloc (SEGSIZE, sizeof(REAL));
-    dtcm_buffer_moc_x = (REAL *) sark_alloc (SEGSIZE, sizeof(REAL));
-	dtcm_buffer_moc_y = (REAL *) sark_alloc (SEGSIZE, sizeof(REAL));
+    dtcm_buffer_moc_x = (REAL *) sark_alloc (MOC_BUFFER_SIZE, sizeof(REAL));
+	dtcm_buffer_moc_y = (REAL *) sark_alloc (MOC_BUFFER_SIZE, sizeof(REAL));
 
 	moc_count_buffer = (uint *) sark_alloc (MOC_DELAY_ARRAY_LEN,sizeof(uint));
 
@@ -306,6 +312,9 @@ bool app_init(uint32_t *timer_period)
 		{
 			dtcm_buffer_x[i]   = 0;
 			dtcm_buffer_y[i]   = 0;
+		}
+        for (uint i = 0; i < MOC_BUFFER_SIZE; i++)
+		{
             dtcm_buffer_moc_x[i]   = 0;
 			dtcm_buffer_moc_y[i]   = 0;
 		}
@@ -319,6 +328,7 @@ bool app_init(uint32_t *timer_period)
 		}
         MC_seg_idx=0;
         seg_output_n_bytes = SEGSIZE * sizeof(REAL);
+        moc_seg_output_n_bytes = MOC_BUFFER_SIZE * sizeof(REAL);
 	}
 
 	
@@ -417,7 +427,7 @@ bool app_init(uint32_t *timer_period)
 	nlin_y2b[0]=0.0;
 	nlin_y2b[1]=0.0;
 
-	rateToAttentuationFactor = 60e3;//20e6;//20e4;
+	rateToAttentuationFactor = 36e3;//6e3;//60e3;//20e6;//20e4;
 
 	MOCnow1=0.0;
 	MOCnow2=0.0;
@@ -461,7 +471,7 @@ bool check_incoming_spike_id(uint spike){
             last_neuron_info.e_index = entry.conn_index;
             last_neuron_info.w_index = neuron_id/32;
             last_neuron_info.id_shift = 31-(neuron_id%32);
-	        return(moc_conn_lut[last_neuron_info.e_index+last_neuron_info.w_index] & (uint32_t)1 << last_neuron_info.id_shift);
+	        return(moc_conn_lut[last_neuron_info.e_index+last_neuron_info.w_index] & ((uint32_t)1 << last_neuron_info.id_shift));
         }
         else if (entry.key < spike) {
 
@@ -474,7 +484,6 @@ bool check_incoming_spike_id(uint spike){
         }
     }
     return false;
-
 }
 
 void update_moc_buffer(uint sc){
@@ -485,7 +494,6 @@ void update_moc_buffer(uint sc){
 }
 
 uint get_current_moc_spike_count(){
-//    uint spike_count = 0;
     int index_diff = moc_buffer_index - MOC_DELAY_MS;
     uint delayed_index;
     if (index_diff<0){
@@ -495,32 +503,15 @@ uint get_current_moc_spike_count(){
     else{
         delayed_index = index_diff;
     }
-/*    for (uint i=0;i<MOC_DELAY_MS;i++)
-    {
-        spike_count+=moc_count_buffer[i];
-    }*/
 
-//    if(spike_count>0)log_info("sc:%d",spike_count);
-//    return spike_count;
     return moc_count_buffer[delayed_index];
 }
 
 recording_complete_callback_t record_finished(void)
 {
-    #ifdef PROFILE
-      profiler_write_entry_disable_irq_fiq(PROFILER_EXIT |
-                                            PROFILER_TIMER);
-    #endif
-//    log_info("recording segment moc complete %d",seg_index);
-    //flip write buffers
-    write_switch=!write_switch;
-    //send MC packet to connected IHC/AN models
-    while (!spin1_send_mc_packet(key, 0, NO_PAYLOAD))
-    {
-        spin1_delay_us(1);
-    }
+    log_info("recording segment moc complete %d",moc_seg_index);
+    moc_seg_index++;
 }
-
 
 void data_write(uint null_a, uint null_b)
 {
@@ -534,20 +525,28 @@ void data_write(uint null_a, uint null_b)
 		{
 			out_index=index_x;
 			dtcm_buffer_out=dtcm_buffer_x;
-			dtcm_buffer_moc=dtcm_buffer_moc_x;
 		}
 		else
 		{
 			out_index=index_y;
 			dtcm_buffer_out=dtcm_buffer_y;
-            dtcm_buffer_moc=dtcm_buffer_moc_y;
 		}
 
         spin1_dma_transfer(DMA_WRITE,&sdramout_buffer[out_index],dtcm_buffer_out,DMA_WRITE,
 		  						SEGSIZE*sizeof(REAL));
-		if(is_recording){
+        //flip write buffers
+        write_switch=!write_switch;
+
+		if(is_recording && moc_i>=MOC_BUFFER_SIZE){
+
+		    if (!moc_write_switch)dtcm_buffer_moc=dtcm_buffer_moc_x;
+		    else dtcm_buffer_moc=dtcm_buffer_moc_y;
+
             recording_record_and_notify(0, dtcm_buffer_moc,
-                                    seg_output_n_bytes,record_finished);
+                                    moc_seg_output_n_bytes,record_finished);
+            //flip moc_write buffers
+            moc_write_switch=!moc_write_switch;
+            moc_i = 0;
         }
 	}
 }
@@ -639,7 +638,12 @@ uint process_chan(REAL *out_buffer,float *in_buffer,REAL *moc_out_buffer)
 		//save to buffer
 		out_buffer[i]=linout2 + nonlinout2b;
 		//if recording MOC
-		if(is_recording)moc_out_buffer[i]=MOC;
+		moc_sample_count++;
+		if(is_recording && moc_sample_count==moc_resample_factor){
+		    moc_out_buffer[moc_i]=MOC;
+		    moc_i++;
+		    moc_sample_count=0;
+		}
 	}
 	ms_counter++;
 	return segment_offset;
@@ -647,32 +651,6 @@ uint process_chan(REAL *out_buffer,float *in_buffer,REAL *moc_out_buffer)
 
 void app_end(uint null_a,uint null_b)
 {
-    /*if( sync_count<num_ihcans)
-    {
-        //send end MC packet to child IHCANs
-        log_info("sending final packet to IHCANs\n");
-        while (!spin1_send_mc_packet(key|1, 0, NO_PAYLOAD)) {
-            spin1_delay_us(1);
-        }
-
-        //wait for acknowledgment from child IHCANs
-        while(sync_count<num_ihcans)
-        {
-           spin1_delay_us(1);
-        }
-    }
-    //all expected acks received
-    //send final ack packet back to parent OME
-//    io_printf(IO_BUF,"fintxack\n");
-    while (!spin1_send_mc_packet(ome_key|2, 0, NO_PAYLOAD)) {
-        spin1_delay_us(1);
-    }*/
-
-        //send end MC packet to child IHCANs
-//        log_info("sending final packet to IHCANs\n");
-//        while (!spin1_send_mc_packet(key|1, 0, NO_PAYLOAD)) {
-//            spin1_delay_us(1);
-//        }
     if(is_recording){
         recording_finalise();
     }
@@ -681,58 +659,47 @@ void app_end(uint null_a,uint null_b)
     io_printf(IO_BUF,"spinn_exit\n");
     app_complete=true;
     simulation_ready_to_read();
-
 }
 
 void process_handler(uint null_a,uint null_b)
 {
+        REAL *dtcm_moc;
 		seg_index++;
+		if (!moc_write_switch)dtcm_moc = dtcm_buffer_moc_x;
+		else dtcm_moc = dtcm_buffer_moc_y;
 		//choose current buffers
 		if(!read_switch && !write_switch)
 		{
-			index_x=process_chan(dtcm_buffer_x,dtcm_buffer_b,dtcm_buffer_moc_x);
-
+			index_x=process_chan(dtcm_buffer_x,dtcm_buffer_b,dtcm_moc);
 		}
 		else if(!read_switch && write_switch)
 		{
-			index_y=process_chan(dtcm_buffer_y,dtcm_buffer_b,dtcm_buffer_moc_y);
+			index_y=process_chan(dtcm_buffer_y,dtcm_buffer_b,dtcm_moc);
 		}
 		else if(read_switch && !write_switch)
 		{
-			index_x=process_chan(dtcm_buffer_x,dtcm_buffer_a,dtcm_buffer_moc_x);
+			index_x=process_chan(dtcm_buffer_x,dtcm_buffer_a,dtcm_moc);
 		}
 		else
 		{
-			index_y=process_chan(dtcm_buffer_y,dtcm_buffer_a,dtcm_buffer_moc_y);
+			index_y=process_chan(dtcm_buffer_y,dtcm_buffer_a,dtcm_moc);
 		}
         spin1_trigger_user_event(NULL,NULL);
-
-
-//        log_info("si %d",seg_index);
-//    	if (seg_index>=TOTAL_TICKS)spin1_schedule_callback(app_end,NULL,NULL,2);
 }
 
-void transfer_handler(uint tid, uint ttag)
+void write_complete(uint tid, uint ttag)
 {
-	if (ttag==DMA_WRITE)
-	{
-	    #ifdef PROFILE
-        profiler_write_entry_disable_irq_fiq(PROFILER_EXIT | PROFILER_TIMER);
-        #endif
-		//flip write buffers
-		write_switch=!write_switch;
-        //send MC packet to connected IHC/AN models
-        while (!spin1_send_mc_packet(key, 0, NO_PAYLOAD))
-        {
-            spin1_delay_us(1);
-        }
-	}
-	else
-	{
-		#ifdef PRINT
-		io_printf(IO_BUF,"[core %d] invalid %d DMA tag!\n",coreID,ttag);
-		#endif
-	}
+    #ifdef PROFILE
+    profiler_write_entry_disable_irq_fiq(PROFILER_EXIT | PROFILER_TIMER);
+    #endif
+//    log_info("segment send complete %d",seg_index);
+//    //flip write buffers
+//    write_switch=!write_switch;
+    //send MC packet to connected IHC/AN models
+    while (!spin1_send_mc_packet(key, 0, NO_PAYLOAD))
+    {
+        spin1_delay_us(1);
+    }
 }
 
 void spike_check(uint32_t rx_key,uint null){
@@ -788,47 +755,6 @@ void data_read(uint mc_key, uint payload)
             }
         }
     }
-/*    else//must be a command
-    {
-        //extract comms command from key
-        uint command = mc_key & mask;
-
-*//*        if(command == 1 && seg_index==0)//ready to send packet received from OME
-        {
-            log_info("r2s from %d",(mc_key & ~mask));
-            if (sync_count<num_ihcans)//waiting for acknowledgement from child IHCANs
-            {
-                //sending ready to send MC packet to connected IHCAN models
-                while (!spin1_send_mc_packet(key|1, 0, NO_PAYLOAD))
-                {
-                    spin1_delay_us(1);
-                }
-            }
-        }*//*
-        if (command == 1 && seg_index>0)//simulation finished from OME
-        {
-            spin1_schedule_callback(app_end,NULL,NULL,2);
-        }
-
-        *//*else if (command == 2)//acknowledgement packet received from a child IHCAN
-        {
-            io_printf(IO_BUF,"rxack\n");
-            sync_count++;
-            if (sync_count==num_ihcans && seg_index==0)
-            {
-//                io_printf(IO_BUF,"txack from %d\n",ome_key);
-                //all acknowledgments have been received from the child IHCAN models
-                //send acknowledgement back to parent OME
-
-                while (!spin1_send_mc_packet(ome_key|2, 0, NO_PAYLOAD))
-                {
-                    spin1_delay_us(1);
-                }
-                sync_count=0;
-            }
-        }*//*
-        else while(1){};
-    }*/
 }
 
 void app_done ()
@@ -863,14 +789,13 @@ void c_main()
         spin1_set_timer_tick(timer_period);
         //setup callbacks
         //process channel once data input has been read to DTCM
-        if(!is_recording)spin1_callback_on (DMA_TRANSFER_DONE,transfer_handler,0);
+//        spin1_callback_on (DMA_TRANSFER_DONE,transfer_handler,0);
+        simulation_dma_transfer_done_callback_on(DMA_WRITE, write_complete);
         spin1_callback_on (MCPL_PACKET_RECEIVED,data_read,-1);
         spin1_callback_on (MC_PACKET_RECEIVED,moc_spike_received,-1);
         spin1_callback_on (USER_EVENT,data_write,0);
         spin1_callback_on (TIMER_TICK,count_ticks,0);
 
-        //spin1_start (SYNC_WAIT);
-        //      app_done ();
         simulation_run();
     }
 }
