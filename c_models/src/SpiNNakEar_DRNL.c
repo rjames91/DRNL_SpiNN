@@ -77,6 +77,8 @@ int start_count_write;
 int end_count_write;
 
 uint sync_count=0;
+uint rx_any_spikes = 0;
+uint moc_changed = 0;
 
 float *dtcm_buffer_a;
 float *dtcm_buffer_b;
@@ -236,7 +238,7 @@ bool app_init(uint32_t *timer_period)
     Fs= (REAL)sampling_frequency;
 	dt=(1.0/Fs);
 	//calculate how many segments approx 1ms is
-	n_seg_per_ms = 1./(SEGSIZE*(1000.*dt));
+	n_seg_per_ms = 1e-3/(SEGSIZE*dt);
     log_info("n_seg_per_ms=%d\n",n_seg_per_ms);
     moc_resample_factor = (Fs/1000.);
     log_info("moc resample factor =%d\n",moc_resample_factor);
@@ -427,27 +429,27 @@ bool app_init(uint32_t *timer_period)
 	nlin_y2b[0]=0.0;
 	nlin_y2b[1]=0.0;
 
-	rateToAttentuationFactor = 36e3;//6e3;//60e3;//20e6;//20e4;
+	rateToAttentuationFactor = 15;//4.25e2;
 
 	MOCnow1=0.0;
 	MOCnow2=0.0;
 	MOCnow3=0.0;
 
-	MOCtau[0] = 0.05;//0.055;
-	MOCtau[1] = 0.3;//0.4;
-    MOCtau[2] = 100;//1;
+	MOCtau[0] = 0.055;//0.05;//
+	MOCtau[1] = 0.4;//0.3;//
+    MOCtau[2] = 1;//100;//
 
-    MOCtauweights[0] = 0.7;//0.9;
-    MOCtauweights[1] = 0.3;//0.1;
+    MOCtauweights[0] = 0.9;//0.7;//
+    MOCtauweights[1] = 0.1;//0.3;//
     MOCtauweights[2] = 0;
 
     MOCdec1 = exp(- dt/MOCtau[0]);
     MOCdec2 = exp(- dt/MOCtau[1]);
     MOCdec3 = exp(- dt/MOCtau[2]);
 
-    MOCfactor1 = 0.01 * rateToAttentuationFactor * MOCtauweights[0] * dt;
-    MOCfactor2 = 0.01 * rateToAttentuationFactor * MOCtauweights[1] * dt;
-    MOCfactor3 = 0.01 * rateToAttentuationFactor * MOCtauweights[2] * dt;
+    MOCfactor1 = rateToAttentuationFactor * MOCtauweights[0] * dt;//0.01 * rateToAttentuationFactor * MOCtauweights[0] * dt;
+    MOCfactor2 = 0.;//0.01 * rateToAttentuationFactor * MOCtauweights[1] * dt;
+    MOCfactor3 = 0.;//0.01 * rateToAttentuationFactor * MOCtauweights[2] * dt;
 
     MOCspikeCount=0;
 
@@ -509,7 +511,7 @@ uint get_current_moc_spike_count(){
 
 recording_complete_callback_t record_finished(void)
 {
-    log_info("recording segment moc complete %d",moc_seg_index);
+//    log_info("recording segment moc complete %d",moc_seg_index);
     moc_seg_index++;
 }
 
@@ -599,12 +601,19 @@ uint process_chan(REAL *out_buffer,float *in_buffer,REAL *moc_out_buffer)
 		MOCspikeCount = (REAL)get_current_moc_spike_count();
 		if (MOCspikeCount<0.)log_info("-ve moc_n%d",MOCspikeCount);
 //		if (MOCspikeCount>0)log_info("moc_n%d",MOCspikeCount);
-        MOCnow1= MOCnow1* MOCdec1+ MOCspikeCount* MOCfactor1;
+/*        MOCnow1= MOCnow1* MOCdec1+ MOCspikeCount* MOCfactor1;
         MOCnow2= MOCnow2* MOCdec2+ MOCspikeCount* MOCfactor2;
-        MOCnow3= MOCnow3* MOCdec3+ MOCspikeCount* MOCfactor3;
+        MOCnow3= MOCnow3* MOCdec3+ MOCspikeCount* MOCfactor3;*/
+        MOCnow1= MOCnow1* MOCdec1+ MOCspikeCount*MOCspikeCount* MOCfactor1;
+        MOCnow2= MOCnow2* MOCdec2+ MOCspikeCount*MOCspikeCount* MOCfactor2;
+        MOCnow3= MOCnow3* MOCdec3+ MOCspikeCount*MOCspikeCount* MOCfactor3;
+/*        MOCnow1= MOCnow1* MOCdec1+ MOCspikeCount* (1-MOCdec1);
+        MOCnow2= MOCnow2* MOCdec2+ MOCspikeCount* (1-MOCdec2);
+        MOCnow3= MOCnow3* MOCdec3+ MOCspikeCount* (1-MOCdec3);*/
         // MOC= 1 when all MOCnow are zero
         // 0 < MOC < 1
         MOC= 1./(1+MOCnow1+MOCnow2+MOCnow3);
+//        MOC= 1./(1+MOCnow1*MOCfactor1+MOCnow2*MOCfactor2+MOCnow3*MOCfactor3);
         if (MOC>1.) log_info("out of bounds moc_n%d",MOC);
         if (MOC<0.) log_info("out of bounds moc_n%d",MOC);
 		nonlinout2a*=MOC;
@@ -641,6 +650,8 @@ uint process_chan(REAL *out_buffer,float *in_buffer,REAL *moc_out_buffer)
 		moc_sample_count++;
 		if(is_recording && moc_sample_count==moc_resample_factor){
 		    moc_out_buffer[moc_i]=MOC;
+//            moc_out_buffer[moc_i]=MOCspikeCount;
+		    if (MOC != 1.) moc_changed = 1;
 		    moc_i++;
 		    moc_sample_count=0;
 		}
@@ -657,6 +668,8 @@ void app_end(uint null_a,uint null_b)
     log_info("total simulation ticks = %d",
         simulation_ticks);
     io_printf(IO_BUF,"spinn_exit\n");
+    log_info("rx any spikes = %d",rx_any_spikes);
+    log_info("moc changed = %d",moc_changed);
     app_complete=true;
     simulation_ready_to_read();
 }
@@ -712,6 +725,7 @@ void spike_check(uint32_t rx_key,uint null){
 void moc_spike_received(uint mc_key, uint null)
 {
     spin1_schedule_callback(spike_check,mc_key,NULL,1);
+    if (!rx_any_spikes)rx_any_spikes=1;
 }
 
 
@@ -778,7 +792,6 @@ void c_main()
     chipID = spin1_get_chip_id ();
     uint32_t timer_period;
 
-
     // Start the time at "-1" so that the first tick will be 0
     time = UINT32_MAX;
 
@@ -789,7 +802,6 @@ void c_main()
         spin1_set_timer_tick(timer_period);
         //setup callbacks
         //process channel once data input has been read to DTCM
-//        spin1_callback_on (DMA_TRANSFER_DONE,transfer_handler,0);
         simulation_dma_transfer_done_callback_on(DMA_WRITE, write_complete);
         spin1_callback_on (MCPL_PACKET_RECEIVED,data_read,-1);
         spin1_callback_on (MC_PACKET_RECEIVED,moc_spike_received,-1);
