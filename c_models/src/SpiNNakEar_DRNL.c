@@ -429,7 +429,7 @@ bool app_init(uint32_t *timer_period)
 	nlin_y2b[0]=0.0;
 	nlin_y2b[1]=0.0;
 
-	rateToAttentuationFactor = 15;//4.25e2;
+	rateToAttentuationFactor = 1;//15;//4.25e2;
 
 	MOCnow1=0.0;
 	MOCnow2=0.0;
@@ -485,6 +485,7 @@ bool check_incoming_spike_id(uint spike){
             imax = imid;
         }
     }
+    log_info("rx spike: %u not in pop table!",spike);
     return false;
 }
 
@@ -601,12 +602,17 @@ uint process_chan(REAL *out_buffer,float *in_buffer,REAL *moc_out_buffer)
 		MOCspikeCount = (REAL)get_current_moc_spike_count();
 		if (MOCspikeCount<0.)log_info("-ve moc_n%d",MOCspikeCount);
 //		if (MOCspikeCount>0)log_info("moc_n%d",MOCspikeCount);
+//		if (MOCspikeCount<3)MOCspikeCount=0;
 /*        MOCnow1= MOCnow1* MOCdec1+ MOCspikeCount* MOCfactor1;
         MOCnow2= MOCnow2* MOCdec2+ MOCspikeCount* MOCfactor2;
         MOCnow3= MOCnow3* MOCdec3+ MOCspikeCount* MOCfactor3;*/
-        MOCnow1= MOCnow1* MOCdec1+ MOCspikeCount*MOCspikeCount* MOCfactor1;
+        /*MOCnow1= MOCnow1* MOCdec1+ MOCspikeCount*MOCspikeCount* MOCfactor1;
         MOCnow2= MOCnow2* MOCdec2+ MOCspikeCount*MOCspikeCount* MOCfactor2;
-        MOCnow3= MOCnow3* MOCdec3+ MOCspikeCount*MOCspikeCount* MOCfactor3;
+        MOCnow3= MOCnow3* MOCdec3+ MOCspikeCount*MOCspikeCount* MOCfactor3;*/
+        MOCnow1= MOCnow1* MOCdec1+ MOCspikeCount*MOCspikeCount*MOCspikeCount* MOCfactor1;
+        MOCnow2= MOCnow2* MOCdec2+ MOCspikeCount*MOCspikeCount*MOCspikeCount* MOCfactor2;
+        MOCnow3= MOCnow3* MOCdec3+ MOCspikeCount*MOCspikeCount*MOCspikeCount* MOCfactor3;
+
 /*        MOCnow1= MOCnow1* MOCdec1+ MOCspikeCount* (1-MOCdec1);
         MOCnow2= MOCnow2* MOCdec2+ MOCspikeCount* (1-MOCdec2);
         MOCnow3= MOCnow3* MOCdec3+ MOCspikeCount* (1-MOCdec3);*/
