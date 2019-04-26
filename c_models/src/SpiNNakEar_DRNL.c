@@ -42,7 +42,7 @@ uint MC_seg_idx;
 uint_float_union MC_union;
 uint ack_rx=0;
 uint moc_spike_count=0;
-uint ms_counter=0;
+uint sample_counter=0;
 uint moc_buffer_index = 0;
 uint moc_i=0;
 uint moc_write_switch = 0;
@@ -157,7 +157,7 @@ static key_mask_table_entry *key_mask_table;
 static last_neuron_info_t last_neuron_info;
 
 uint *moc_conn_lut_address;
-uint n_seg_per_ms;
+uint n_samples_per_100us;
 
 //uint32_t TOTAL_TICKS;
 static uint32_t simulation_ticks=0;
@@ -238,8 +238,8 @@ bool app_init(uint32_t *timer_period)
     Fs= (REAL)sampling_frequency;
 	dt=(1.0/Fs);
 	//calculate how many segments approx 1ms is
-	n_seg_per_ms = 1e-3/(SEGSIZE*dt);
-    log_info("n_seg_per_ms=%d\n",n_seg_per_ms);
+	n_samples_per_100us = 100e-6/dt;
+    log_info("n_samples_per_100us=%d\n",n_samples_per_100us);
     moc_resample_factor = (Fs/1000.);
     log_info("moc resample factor =%d\n",moc_resample_factor);
 	ome_data_key = params[OME_DATA_KEY];
@@ -429,7 +429,7 @@ bool app_init(uint32_t *timer_period)
 	nlin_y2b[0]=0.0;
 	nlin_y2b[1]=0.0;
 
-	rateToAttentuationFactor = 100;//10;//15;//4.25e2;
+	rateToAttentuationFactor = 6e2;//4.25e3;//1e3;//10;//15;//
 
 	MOCnow1=0.0;
 	MOCnow2=0.0;
@@ -447,8 +447,10 @@ bool app_init(uint32_t *timer_period)
     MOCdec2 = exp(- dt/MOCtau[1]);
     MOCdec3 = exp(- dt/MOCtau[2]);
 
-    MOCfactor1 = rateToAttentuationFactor * MOCtauweights[0] * dt;//0.01 * rateToAttentuationFactor * MOCtauweights[0] * dt;
-    MOCfactor2 = 0.;//0.01 * rateToAttentuationFactor * MOCtauweights[1] * dt;
+//    MOCfactor1 = rateToAttentuationFactor * MOCtauweights[0] * dt;//0.01 * rateToAttentuationFactor * MOCtauweights[0] * dt;
+//    MOCfactor2 = 0.;//0.01 * rateToAttentuationFactor * MOCtauweights[1] * dt;
+    MOCfactor1 = rateToAttentuationFactor * MOCtauweights[0] * dt;
+    MOCfactor2 = 0.;//rateToAttentuationFactor * MOCtauweights[1] * dt;
     MOCfactor3 = 0.;//0.01 * rateToAttentuationFactor * MOCtauweights[2] * dt;
 
     MOCspikeCount=0;
@@ -497,7 +499,7 @@ void update_moc_buffer(uint sc){
 }
 
 uint get_current_moc_spike_count(){
-    int index_diff = moc_buffer_index - MOC_DELAY_MS;
+    int index_diff = moc_buffer_index - MOC_DELAY;
     uint delayed_index;
     if (index_diff<0){
         //wrap around
@@ -561,11 +563,6 @@ uint process_chan(REAL *out_buffer,float *in_buffer,REAL *moc_out_buffer)
 	REAL linout1,linout2,nonlinout1a,nonlinout2a,nonlinout1b,nonlinout2b,abs_x,compressedNonlin;
 	REAL filter_1;
 
-	if(ms_counter>=n_seg_per_ms){
-	    update_moc_buffer(moc_spike_count);
-	    moc_spike_count = 0;
-	    ms_counter = 0;
-	}
 	//TODO: change MOC method to a synapse model
 	for(i=0;i<SEGSIZE;i++)
 	{
@@ -656,13 +653,13 @@ uint process_chan(REAL *out_buffer,float *in_buffer,REAL *moc_out_buffer)
 		moc_sample_count++;
 		if(is_recording && moc_sample_count==moc_resample_factor){
 		    moc_out_buffer[moc_i]=MOC;
-//            moc_out_buffer[moc_i]=MOCspikeCount;
+//		    moc_out_buffer[moc_i]=out_buffer[i];
+//          moc_out_buffer[moc_i]=MOCspikeCount;
 		    if (MOC != 1.) moc_changed = 1;
 		    moc_i++;
 		    moc_sample_count=0;
 		}
 	}
-	ms_counter++;
 	return segment_offset;
 }
 
@@ -745,6 +742,11 @@ void data_read(uint mc_key, uint payload)
         //collect the next segment of samples and copy into DTCM
         if(test_DMA == TRUE)
         {
+//            if(sample_counter>=n_samples_per_100us){
+//	            update_moc_buffer(moc_spike_count);
+//	            moc_spike_count = 0;
+//	            sample_counter = 0;
+//	        }
             MC_seg_idx++;
             #ifdef PROFILE
             if(MC_seg_idx>=SEGSIZE)profiler_write_entry_disable_irq_fiq
@@ -773,6 +775,7 @@ void data_read(uint mc_key, uint payload)
                     spin1_schedule_callback(process_handler,0,0,1);
                 }
             }
+//            sample_counter++;
         }
     }
 }
@@ -786,9 +789,10 @@ void app_done ()
 
 void count_ticks(uint null_a, uint null_b){
 
+    update_moc_buffer(moc_spike_count);
+    moc_spike_count = 0;
     time++;
     if (time>simulation_ticks && !app_complete)spin1_schedule_callback(app_end,NULL,NULL,2);
-
 }
 
 void c_main()
@@ -803,9 +807,9 @@ void c_main()
 
     if(app_init(&timer_period)){
         // Set timer tick (in microseconds)
-        log_info("setting timer tick callback for %d microseconds",
-        timer_period);
+        log_info("setting timer tick callback for %d microseconds",timer_period);
         spin1_set_timer_tick(timer_period);
+
         //setup callbacks
         //process channel once data input has been read to DTCM
         simulation_dma_transfer_done_callback_on(DMA_WRITE, write_complete);
