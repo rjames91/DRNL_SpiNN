@@ -670,6 +670,7 @@ void app_end(uint null_a,uint null_b)
     }
     log_info("total simulation ticks = %d",
         simulation_ticks);
+    log_info("processed %d segments",seg_index);
     io_printf(IO_BUF,"spinn_exit\n");
     log_info("rx any spikes = %d",rx_any_spikes);
     log_info("moc changed = %d",moc_changed);
