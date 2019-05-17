@@ -219,10 +219,9 @@ bool app_init(uint32_t *timer_period)
     log_info("key:%d",key);
 
     is_recording = params[IS_RECORDING];
-    log_info("is rec:%d",is_recording);
-    if(is_recording){
-        if (!initialise_recording()) return false;
-    }
+    log_info("is rec:%d",is_recording);//not used, will always record
+    if (!initialise_recording()) return false;
+
     //get the mask needed to extract comms protocol from MC keys
     mask = 3;
     //number of child IHC/ANs
@@ -542,7 +541,7 @@ void data_write(uint null_a, uint null_b)
         //flip write buffers
         write_switch=!write_switch;
 
-		if(is_recording && moc_i>=MOC_BUFFER_SIZE){
+		if(moc_i>=MOC_BUFFER_SIZE){
 
 		    if (!moc_write_switch)dtcm_buffer_moc=dtcm_buffer_moc_x;
 		    else dtcm_buffer_moc=dtcm_buffer_moc_y;
@@ -651,7 +650,7 @@ uint process_chan(REAL *out_buffer,float *in_buffer,REAL *moc_out_buffer)
 		out_buffer[i]=linout2 + nonlinout2b;
 		//if recording MOC
 		moc_sample_count++;
-		if(is_recording && moc_sample_count==moc_resample_factor){
+		if(moc_sample_count==moc_resample_factor){
 		    moc_out_buffer[moc_i]=MOC;
 //		    moc_out_buffer[moc_i]=out_buffer[i];
 //          moc_out_buffer[moc_i]=MOCspikeCount;
@@ -665,9 +664,7 @@ uint process_chan(REAL *out_buffer,float *in_buffer,REAL *moc_out_buffer)
 
 void app_end(uint null_a,uint null_b)
 {
-    if(is_recording){
-        recording_finalise();
-    }
+    recording_finalise();
     log_info("total simulation ticks = %d",
         simulation_ticks);
     log_info("processed %d segments",seg_index);
