@@ -14,7 +14,7 @@
 #include "spin1_api.h"
 #include "math.h"
 #include "complex.h"
-#include "random.h"
+#include <random.h>
 #include "stdfix-exp.h"
 #include "log.h"
 #include <data_specification.h>
@@ -49,6 +49,7 @@ uint moc_write_switch = 0;
 uint moc_resample_factor;
 uint moc_sample_count = 0;
 uint moc_seg_index = 0;
+uint mc_tx_count = 0;
 bool app_complete = false;
 
 REAL cf,nlin_b0,nlin_b1,nlin_b2,nlin_a1,nlin_a2,
@@ -668,6 +669,7 @@ void app_end(uint null_a,uint null_b)
     log_info("total simulation ticks = %d",
         simulation_ticks);
     log_info("processed %d segments",seg_index);
+    log_info("sent %d mc packets",mc_tx_count);
     io_printf(IO_BUF,"spinn_exit\n");
     log_info("rx any spikes = %d",rx_any_spikes);
     log_info("moc changed = %d",moc_changed);
@@ -710,6 +712,7 @@ void write_complete(uint tid, uint ttag)
 //    //flip write buffers
 //    write_switch=!write_switch;
     //send MC packet to connected IHC/AN models
+    mc_tx_count++;
     while (!spin1_send_mc_packet(key, 0, NO_PAYLOAD))
     {
         spin1_delay_us(1);
