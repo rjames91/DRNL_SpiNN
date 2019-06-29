@@ -46,7 +46,7 @@ uint sample_counter=0;
 uint moc_buffer_index = 0;
 uint moc_i=0;
 uint moc_write_switch = 0;
-uint moc_resample_factor;
+//uint moc_resample_factor;
 uint moc_sample_count = 0;
 uint moc_seg_index = 0;
 uint mc_tx_count = 0;
@@ -105,7 +105,7 @@ enum params {
     DATA_SIZE,
     OMECOREID,
     COREID,
-    OMEAPPID,
+    MACHTS,//OMEAPPID,
     OME_KEY,
     KEY,
     NUM_IHCAN,
@@ -138,7 +138,7 @@ uint data_size;
 // the core ID given by the placement software
 uint placement_coreID;
 uint ome_coreID;
-uint ome_appID;
+uint machine_timestep;//ome_appID;
 uint ome_key;
 uint key;
 uint mask;
@@ -158,7 +158,9 @@ static key_mask_table_entry *key_mask_table;
 static last_neuron_info_t last_neuron_info;
 
 uint *moc_conn_lut_address;
-uint n_samples_per_100us;
+REAL dt_moc;
+REAL sim_fs;
+//uint n_samples_per_100us;
 
 //uint32_t TOTAL_TICKS;
 static uint32_t simulation_ticks=0;
@@ -209,9 +211,11 @@ bool app_init(uint32_t *timer_period)
     ome_coreID = params[OMECOREID];
     //obtain this core ID from the host placement perspective
     placement_coreID = params[COREID];
-
-    //obtain ome application ID from the host placement perspective
-    ome_appID = params[OMEAPPID];
+    //amount of time in us of a single simulation tick
+    machine_timestep = params[MACHTS];
+    dt_moc = machine_timestep * 1e-6;
+    log_info("dt moc:%k",(accum)dt_moc);
+    sim_fs = 1./dt_moc;
     //key for synchronisation messages to be sent back to parent OME
     ome_key=params[OME_KEY];
     log_info("omekey:%d",ome_key);
@@ -238,10 +242,10 @@ bool app_init(uint32_t *timer_period)
     Fs= (REAL)sampling_frequency;
 	dt=(1.0/Fs);
 	//calculate how many segments approx 1ms is
-	n_samples_per_100us = 100e-6/dt;
-    log_info("n_samples_per_100us=%d\n",n_samples_per_100us);
-    moc_resample_factor = (Fs/1000.);
-    log_info("moc resample factor =%d\n",moc_resample_factor);
+//	n_samples_per_100us = 100e-6/dt;
+//    log_info("n_samples_per_100us=%d\n",n_samples_per_100us);
+//    moc_resample_factor = data_size/ceil((data_size * dt)/dt_moc);//Fs/1000.);
+//    log_info("moc resample factor =%d\n",moc_resample_factor);
 	ome_data_key = params[OME_DATA_KEY];
     io_printf(IO_BUF,"ome_data_key=%d\n",ome_data_key);
 
@@ -429,31 +433,34 @@ bool app_init(uint32_t *timer_period)
 	nlin_y2b[0]=0.0;
 	nlin_y2b[1]=0.0;
 
-	rateToAttentuationFactor = 6e2;//4.25e3;//1e3;//10;//15;//
+	rateToAttentuationFactor = 8.5e-6;//4.25e3;//6e2;//1e3;//10;//15;//
 
 	MOCnow1=0.0;
-	MOCnow2=0.0;
-	MOCnow3=0.0;
+//	MOCnow2=0.0;
+//	MOCnow3=0.0;
 
 	MOCtau[0] = 0.055;//0.05;//
-	MOCtau[1] = 0.4;//0.3;//
-    MOCtau[2] = 1;//100;//
+//	MOCtau[1] = 0.4;//0.3;//
+//    MOCtau[2] = 1;//100;//
 
     MOCtauweights[0] = 0.9;//0.7;//
-    MOCtauweights[1] = 0.1;//0.3;//
-    MOCtauweights[2] = 0;
+//    MOCtauweights[1] = 0.1;//0.3;//
+//    MOCtauweights[2] = 0;
 
+//    MOCdec1 = exp(- dt_moc/MOCtau[0]);
     MOCdec1 = exp(- dt/MOCtau[0]);
-    MOCdec2 = exp(- dt/MOCtau[1]);
-    MOCdec3 = exp(- dt/MOCtau[2]);
+//    MOCdec2 = exp(- dt/MOCtau[1]);
+//    MOCdec3 = exp(- dt/MOCtau[2]);
 
 //    MOCfactor1 = rateToAttentuationFactor * MOCtauweights[0] * dt;//0.01 * rateToAttentuationFactor * MOCtauweights[0] * dt;
 //    MOCfactor2 = 0.;//0.01 * rateToAttentuationFactor * MOCtauweights[1] * dt;
-    MOCfactor1 = rateToAttentuationFactor * MOCtauweights[0] * dt;
+//    MOCfactor1 = rateToAttentuationFactor * MOCtauweights[0] * dt;
+    MOCfactor1 = rateToAttentuationFactor * MOCtauweights[0] * sim_fs * (dt/dt_moc);
     MOCfactor2 = 0.;//rateToAttentuationFactor * MOCtauweights[1] * dt;
     MOCfactor3 = 0.;//0.01 * rateToAttentuationFactor * MOCtauweights[2] * dt;
 
     MOCspikeCount=0;
+    MOC = 1.;
 
 #ifdef PROFILE
     profiler_init(
@@ -521,7 +528,7 @@ recording_complete_callback_t record_finished(void)
 void data_write(uint null_a, uint null_b)
 {
 	REAL *dtcm_buffer_out;
-	REAL *dtcm_buffer_moc;
+//	REAL *dtcm_buffer_moc;
 	uint out_index;
 	
 	if(test_DMA == TRUE)
@@ -542,7 +549,7 @@ void data_write(uint null_a, uint null_b)
         //flip write buffers
         write_switch=!write_switch;
 
-		if(moc_i>=MOC_BUFFER_SIZE){
+/*		if(moc_i>=MOC_BUFFER_SIZE){
 
 		    if (!moc_write_switch)dtcm_buffer_moc=dtcm_buffer_moc_x;
 		    else dtcm_buffer_moc=dtcm_buffer_moc_y;
@@ -552,11 +559,12 @@ void data_write(uint null_a, uint null_b)
             //flip moc_write buffers
             moc_write_switch=!moc_write_switch;
             moc_i = 0;
-        }
+        }*/
 	}
 }
 
-uint process_chan(REAL *out_buffer,float *in_buffer,REAL *moc_out_buffer)
+//uint process_chan(REAL *out_buffer,float *in_buffer,REAL *moc_out_buffer)
+uint process_chan(REAL *out_buffer,float *in_buffer)
 {
 	uint segment_offset=SEGSIZE*((seg_index-1) & (cbuff_numseg-1));
 	uint i;
@@ -596,27 +604,30 @@ uint process_chan(REAL *out_buffer,float *in_buffer,REAL *moc_out_buffer)
 		nlin_y2a[1]= nonlinout2a;
 
 		//MOC efferent effects
-		MOCspikeCount = (REAL)get_current_moc_spike_count();
+/*		MOCspikeCount = (REAL)get_current_moc_spike_count();
 		if (MOCspikeCount<0.)log_info("-ve moc_n%d",MOCspikeCount);
 //		if (MOCspikeCount>0)log_info("moc_n%d",MOCspikeCount);
 //		if (MOCspikeCount<3)MOCspikeCount=0;
         MOCnow1= MOCnow1* MOCdec1+ MOCspikeCount* MOCfactor1;
         MOCnow2= MOCnow2* MOCdec2+ MOCspikeCount* MOCfactor2;
         MOCnow3= MOCnow3* MOCdec3+ MOCspikeCount* MOCfactor3;
-        /*MOCnow1= MOCnow1* MOCdec1+ MOCspikeCount*MOCspikeCount* MOCfactor1;
+        *//*MOCnow1= MOCnow1* MOCdec1+ MOCspikeCount*MOCspikeCount* MOCfactor1;
         MOCnow2= MOCnow2* MOCdec2+ MOCspikeCount*MOCspikeCount* MOCfactor2;
-        MOCnow3= MOCnow3* MOCdec3+ MOCspikeCount*MOCspikeCount* MOCfactor3;*/
-/*        MOCnow1= MOCnow1* MOCdec1+ MOCspikeCount*MOCspikeCount*MOCspikeCount* MOCfactor1;
+        MOCnow3= MOCnow3* MOCdec3+ MOCspikeCount*MOCspikeCount* MOCfactor3;*//*
+*//*        MOCnow1= MOCnow1* MOCdec1+ MOCspikeCount*MOCspikeCount*MOCspikeCount* MOCfactor1;
         MOCnow2= MOCnow2* MOCdec2+ MOCspikeCount*MOCspikeCount*MOCspikeCount* MOCfactor2;
-        MOCnow3= MOCnow3* MOCdec3+ MOCspikeCount*MOCspikeCount*MOCspikeCount* MOCfactor3;*/
+        MOCnow3= MOCnow3* MOCdec3+ MOCspikeCount*MOCspikeCount*MOCspikeCount* MOCfactor3;*//*
 
-/*        MOCnow1= MOCnow1* MOCdec1+ MOCspikeCount* (1-MOCdec1);
+*//*        MOCnow1= MOCnow1* MOCdec1+ MOCspikeCount* (1-MOCdec1);
         MOCnow2= MOCnow2* MOCdec2+ MOCspikeCount* (1-MOCdec2);
-        MOCnow3= MOCnow3* MOCdec3+ MOCspikeCount* (1-MOCdec3);*/
+        MOCnow3= MOCnow3* MOCdec3+ MOCspikeCount* (1-MOCdec3);*//*
         // MOC= 1 when all MOCnow are zero
         // 0 < MOC < 1
-        MOC= 1./(1+MOCnow1+MOCnow2+MOCnow3);
+        MOC= 1./(1+MOCnow1+MOCnow2+MOCnow3);*/
 //        MOC= 1./(1+MOCnow1*MOCfactor1+MOCnow2*MOCfactor2+MOCnow3*MOCfactor3);
+        MOCspikeCount = (REAL)get_current_moc_spike_count();
+        MOCnow1 = MOCnow1 * MOCdec1 + MOCspikeCount * MOCfactor1;
+        MOC = 1./(1+MOCnow1);
         if (MOC>1.) log_info("out of bounds moc_n%d",MOC);
         if (MOC<0.) log_info("out of bounds moc_n%d",MOC);
 		nonlinout2a*=MOC;
@@ -651,14 +662,14 @@ uint process_chan(REAL *out_buffer,float *in_buffer,REAL *moc_out_buffer)
 		out_buffer[i]=linout2 + nonlinout2b;
 		//if recording MOC
 		moc_sample_count++;
-		if(moc_sample_count==moc_resample_factor){
-		    moc_out_buffer[moc_i]=MOC;
+/*		if(moc_sample_count==moc_resample_factor){
+//		    moc_out_buffer[moc_i]=MOC;
 //		    moc_out_buffer[moc_i]=out_buffer[i];
-//          moc_out_buffer[moc_i]=MOCspikeCount;
+            moc_out_buffer[moc_i]=MOCspikeCount;
 		    if (MOC != 1.) moc_changed = 1;
 		    moc_i++;
 		    moc_sample_count=0;
-		}
+		}*/
 	}
 	return segment_offset;
 }
@@ -679,26 +690,30 @@ void app_end(uint null_a,uint null_b)
 
 void process_handler(uint null_a,uint null_b)
 {
-        REAL *dtcm_moc;
+//        REAL *dtcm_moc;
 		seg_index++;
-		if (!moc_write_switch)dtcm_moc = dtcm_buffer_moc_x;
-		else dtcm_moc = dtcm_buffer_moc_y;
+//		if (!moc_write_switch)dtcm_moc = dtcm_buffer_moc_x;
+//		else dtcm_moc = dtcm_buffer_moc_y;
 		//choose current buffers
 		if(!read_switch && !write_switch)
 		{
-			index_x=process_chan(dtcm_buffer_x,dtcm_buffer_b,dtcm_moc);
+//			index_x=process_chan(dtcm_buffer_x,dtcm_buffer_b,dtcm_moc);
+			index_x=process_chan(dtcm_buffer_x,dtcm_buffer_b);
 		}
 		else if(!read_switch && write_switch)
 		{
-			index_y=process_chan(dtcm_buffer_y,dtcm_buffer_b,dtcm_moc);
+//			index_y=process_chan(dtcm_buffer_y,dtcm_buffer_b,dtcm_moc);
+			index_y=process_chan(dtcm_buffer_y,dtcm_buffer_b);
 		}
 		else if(read_switch && !write_switch)
 		{
-			index_x=process_chan(dtcm_buffer_x,dtcm_buffer_a,dtcm_moc);
+//			index_x=process_chan(dtcm_buffer_x,dtcm_buffer_a,dtcm_moc);
+			index_x=process_chan(dtcm_buffer_x,dtcm_buffer_a);
 		}
 		else
 		{
-			index_y=process_chan(dtcm_buffer_y,dtcm_buffer_a,dtcm_moc);
+//			index_y=process_chan(dtcm_buffer_y,dtcm_buffer_a,dtcm_moc);
+			index_y=process_chan(dtcm_buffer_y,dtcm_buffer_a);
 		}
         spin1_trigger_user_event(NULL,NULL);
 }
@@ -789,9 +804,26 @@ void app_done ()
 }
 
 void count_ticks(uint null_a, uint null_b){
-
     update_moc_buffer(moc_spike_count);
     moc_spike_count = 0;
+    REAL *dtcm_moc;
+    if (!moc_write_switch)dtcm_moc = dtcm_buffer_moc_x;
+    else dtcm_moc = dtcm_buffer_moc_y;
+    dtcm_moc[moc_i]=MOC;
+//    dtcm_moc[moc_i]=out_buffer[i];
+//    dtcm_moc[moc_i]=MOCspikeCount;
+    if (MOC != 1.) moc_changed = 1;
+    moc_i++;
+    if(moc_i>=MOC_BUFFER_SIZE){
+       	REAL *dtcm_buffer_moc;
+        if (!moc_write_switch)dtcm_buffer_moc=dtcm_buffer_moc_x;
+        else dtcm_buffer_moc=dtcm_buffer_moc_y;
+        recording_record_and_notify(0, dtcm_buffer_moc,
+                                moc_seg_output_n_bytes,record_finished);
+        //flip moc_write buffers
+        moc_write_switch=!moc_write_switch;
+        moc_i = 0;
+    }
     time++;
     if (time>simulation_ticks && !app_complete)spin1_schedule_callback(app_end,NULL,NULL,2);
 }

@@ -21,7 +21,6 @@
 #define SEGSIZE 8//16//96//100
 #define MOC_BUFFER_SIZE 10//min sim 10ms 1kHz MOC FS
 
-#define SAMPLING_FREQUENCY 44100.
 #define MOC_DELAY 1 //32 //3.2ms * 10 as timestep is 0.1ms
 #define MOC_DELAY_ARRAY_LEN 500
 
