@@ -18,6 +18,8 @@ SOURCE_DIRS := $(SOURCE_DIR)
 APP_OUTPUT_DIR := $(abspath $(CURRENT_DIR)../../OME_SpiNN/model_binaries/)/#$(abspath $(CURRENT_DIR)../model_binaries/)/
 #CFLAGS +=-lm -I$(NEURAL_MODELLING_DIRS)/src -Isrc/ -Iinclude/ -I$(SPINN_DIRS)/spinn_common/include -ffast-math
 
+PROFILER = PROFILER_ENABLED
+
 LIBRARIES += -lm
 CFLAGS +=-ffast-math -Iinclude/
 

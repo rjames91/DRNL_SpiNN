@@ -24,7 +24,7 @@
 #include <recording.h>
 #include <debug.h>
 
-//#define PROFILE
+#define PROFILE
 
 //=========GLOBAL VARIABLES============//
 REAL Fs,dt,max_rate;
@@ -440,23 +440,23 @@ bool app_init(uint32_t *timer_period)
 //	MOCnow3=0.0;
 
 	MOCtau[0] = 0.055;//0.05;//
-//	MOCtau[1] = 0.4;//0.3;//
+	MOCtau[1] = 0.4;//0.3;//
 //    MOCtau[2] = 1;//100;//
 
     MOCtauweights[0] = 0.9;//0.7;//
-//    MOCtauweights[1] = 0.1;//0.3;//
+    MOCtauweights[1] = 0.1;//0.3;//
 //    MOCtauweights[2] = 0;
 
 //    MOCdec1 = exp(- dt_moc/MOCtau[0]);
     MOCdec1 = exp(- dt/MOCtau[0]);
-//    MOCdec2 = exp(- dt/MOCtau[1]);
+    MOCdec2 = exp(- dt/MOCtau[1]);
 //    MOCdec3 = exp(- dt/MOCtau[2]);
 
 //    MOCfactor1 = rateToAttentuationFactor * MOCtauweights[0] * dt;//0.01 * rateToAttentuationFactor * MOCtauweights[0] * dt;
 //    MOCfactor2 = 0.;//0.01 * rateToAttentuationFactor * MOCtauweights[1] * dt;
 //    MOCfactor1 = rateToAttentuationFactor * MOCtauweights[0] * dt;
     MOCfactor1 = rateToAttentuationFactor * MOCtauweights[0] * sim_fs * (dt/dt_moc);
-    MOCfactor2 = 0.;//rateToAttentuationFactor * MOCtauweights[1] * dt;
+    MOCfactor2 = rateToAttentuationFactor * MOCtauweights[1] * sim_fs * (dt/dt_moc);
     MOCfactor3 = 0.;//0.01 * rateToAttentuationFactor * MOCtauweights[2] * dt;
 
     MOCspikeCount=0;
@@ -464,7 +464,7 @@ bool app_init(uint32_t *timer_period)
 
 #ifdef PROFILE
     profiler_init(
-        data_specification_get_region(1, data_address));
+        data_specification_get_region(PROFILER, data_address));
 #endif
     return true;
 }
@@ -677,6 +677,9 @@ uint process_chan(REAL *out_buffer,float *in_buffer)
 void app_end(uint null_a,uint null_b)
 {
     recording_finalise();
+    #ifdef PROFILE
+	profiler_finalise();
+    #endif
     log_info("total simulation ticks = %d",
         simulation_ticks);
     log_info("processed %d segments",seg_index);
@@ -721,7 +724,7 @@ void process_handler(uint null_a,uint null_b)
 void write_complete(uint tid, uint ttag)
 {
     #ifdef PROFILE
-    profiler_write_entry_disable_irq_fiq(PROFILER_EXIT | PROFILER_TIMER);
+    profiler_write_entry_disable_irq_fiq(PROFILER_EXIT | PROFILER_DMA_READ);
     #endif
 //    log_info("segment send complete %d",seg_index);
 //    //flip write buffers
@@ -766,7 +769,7 @@ void data_read(uint mc_key, uint payload)
             MC_seg_idx++;
             #ifdef PROFILE
             if(MC_seg_idx>=SEGSIZE)profiler_write_entry_disable_irq_fiq
-            (PROFILER_ENTER | PROFILER_TIMER);
+            (PROFILER_ENTER | PROFILER_DMA_READ);
             #endif
             //assign recieve buffer
             if(!read_switch)
@@ -796,13 +799,6 @@ void data_read(uint mc_key, uint payload)
     }
 }
 
-void app_done ()
-{
-    #ifdef PROFILE
-	profiler_finalise();
-    #endif
-}
-
 void count_ticks(uint null_a, uint null_b){
     update_moc_buffer(moc_spike_count);
     moc_spike_count = 0;
@@ -825,7 +821,8 @@ void count_ticks(uint null_a, uint null_b){
         moc_i = 0;
     }
     time++;
-    if (time>simulation_ticks && !app_complete)spin1_schedule_callback(app_end,NULL,NULL,2);
+    if (time==0)io_printf(IO_BUF,"sync rx!\n");
+    else if (time>simulation_ticks && !app_complete)spin1_schedule_callback(app_end,NULL,NULL,2);
 }
 
 void c_main()
