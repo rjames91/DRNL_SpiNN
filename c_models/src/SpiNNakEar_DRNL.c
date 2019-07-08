@@ -24,7 +24,7 @@
 #include <recording.h>
 #include <debug.h>
 
-#define PROFILE
+//#define PROFILE
 
 //=========GLOBAL VARIABLES============//
 REAL Fs,dt,max_rate;
