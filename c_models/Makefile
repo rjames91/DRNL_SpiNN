@@ -16,13 +16,10 @@ SOURCE_DIRS := $(SOURCE_DIR)
 #SOURCE_DIRS += $(EXTRA_SRC_DIR)
 #SOURCE_DIRS += $(SPINN_DIRS)/spinn_common/src
 APP_OUTPUT_DIR := $(abspath $(CURRENT_DIR)../../OME_SpiNN/model_binaries/)/#$(abspath $(CURRENT_DIR)../model_binaries/)/
-#CFLAGS +=-lm -I$(NEURAL_MODELLING_DIRS)/src -Isrc/ -Iinclude/ -I$(SPINN_DIRS)/spinn_common/include -ffast-math
 
 #PROFILER = PROFILER_ENABLED
 
 LIBRARIES += -lm
-CFLAGS +=-ffast-math -Iinclude/
-
-#include $(NEURAL_MODELLING_DIRS)/src/Makefile.common
+CFLAGS +=-ffast-math -Iinclude/ #-mfpu=fp-armv8
 include $(SPINN_DIRS)/make/local.mk
 
