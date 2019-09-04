@@ -58,6 +58,7 @@ REAL cf,nlin_b0,nlin_b1,nlin_b2,nlin_a1,nlin_a2,
        MOCnow2,MOCnow3,MOCdec1,MOCdec2,MOCdec3,
        MOCfactor1,MOCfactor2,MOCfactor3,MOCspikeCount;
 
+REAL debug_output;
 
 accum c;
 
@@ -433,7 +434,7 @@ bool app_init(uint32_t *timer_period)
 	nlin_y2b[0]=0.0;
 	nlin_y2b[1]=0.0;
 
-	rateToAttentuationFactor = 8.5e-6;//4.25e3;//6e2;//1e3;//10;//15;//
+	rateToAttentuationFactor = 8.5e-6;//4e-6;//4.25e3;//6e2;//1e3;//10;//15;//
 
 	MOCnow1=0.0;
 //	MOCnow2=0.0;
@@ -630,7 +631,7 @@ uint process_chan(REAL *out_buffer,float *in_buffer)
         MOC = 1./(1+MOCnow1);
         if (MOC>1.) log_info("out of bounds moc_n%d",MOC);
         if (MOC<0.) log_info("out of bounds moc_n%d",MOC);
-		nonlinout2a*=MOC;
+		//nonlinout2a*=MOC;
 
 		//stage 2
 		abs_x= ABS(nonlinout2a);
@@ -659,7 +660,9 @@ uint process_chan(REAL *out_buffer,float *in_buffer)
 		nlin_y2b[1]= nonlinout2b;
 
 		//save to buffer
-		out_buffer[i]=linout2 + nonlinout2b;
+//		out_buffer[i]=(linout2 + nonlinout2b);
+		out_buffer[i]=(linout2 + nonlinout2b)*MOC;
+		debug_output = MOC;//out_buffer[i];//nonlinout2a;//
 		//if recording MOC
 		moc_sample_count++;
 /*		if(moc_sample_count==moc_resample_factor){
@@ -806,7 +809,7 @@ void count_ticks(uint null_a, uint null_b){
     if (!moc_write_switch)dtcm_moc = dtcm_buffer_moc_x;
     else dtcm_moc = dtcm_buffer_moc_y;
     dtcm_moc[moc_i]=MOC;
-//    dtcm_moc[moc_i]=out_buffer[i];
+//    dtcm_moc[moc_i]=debug_output;
 //    dtcm_moc[moc_i]=MOCspikeCount;
     if (MOC != 1.) moc_changed = 1;
     moc_i++;
